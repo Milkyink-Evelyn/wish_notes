@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
+import 'utils/sp_utils.dart';
 
-void main() {
+void main() async {
+  // 确保在调用runApp之前初始化Flutter绑定
+  WidgetsFlutterBinding.ensureInitialized();
+  // 初始化SharedPreferences
+  await SPUtils.init();
   runApp(const MainApp());
 }
 
