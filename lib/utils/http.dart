@@ -4,7 +4,7 @@ import 'sp_utils.dart';
 
 /// Dio封装
 class Http {
-  static const String baseUrl = 'https://jsonplaceholder.typicode.com'; // 未知，待定
+  static const String baseUrl = 'https://mobile.sduonline.cn/api';
 
   late final Dio _dio;
   static Http? _instance;
