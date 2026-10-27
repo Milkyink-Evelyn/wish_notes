@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:wish_notes/presentation/login_page_test.dart';
 import 'logic/auth_model.dart';
 import 'presentation/main_navigation_page.dart';
 import 'utils/sp_utils.dart';
@@ -30,7 +29,7 @@ class MyApp extends StatelessWidget {
     return const MaterialApp(
       title: '心愿便签',
       debugShowCheckedModeBanner: false,
-      home: LoginPage(), // 直接展示底部导航
+      home: MainNavigationPage(), // 直接展示底部导航
     );
   }
 }

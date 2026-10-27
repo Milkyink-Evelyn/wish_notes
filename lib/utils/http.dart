@@ -72,4 +72,18 @@ class Http {
     return await _dio.post<T>(path, data: data);
   }
 
+  /// 封装DELETE请求
+  Future<Response<T>> delete<T>(String path) async {
+    return await _dio.delete<T>(path);
+  }
+
+  /// 封装PATCH请求
+  Future<Response<T>> patch<T>(String path, {dynamic data}) async {
+    return await _dio.patch<T>(path, data: data);
+  }
+
+  /// 封装PUT请求
+  Future<Response<T>> put<T>(String path, {dynamic data}) async {
+    return await _dio.put<T>(path, data: data);
+  }
 }
