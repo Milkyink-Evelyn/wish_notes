@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:wish_notes/logic/wish_list_model.dart';
 import 'logic/auth_model.dart';
 import 'presentation/main_navigation_page.dart';
 import 'utils/sp_utils.dart';
@@ -12,12 +13,15 @@ void main() async {
   await SPUtils.init();
   // 初始化数据库
   await DBUtils.init();
+
   runApp(
-    // 使用ChangeNotifierProvider提供AuthModel实例给整个应用
-    ChangeNotifierProvider(
-      create: (_) => AuthModel()..restore(),
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => AuthModel()..restore()),
+        ChangeNotifierProvider(create: (_) => WishListModel()),
+      ],
       child: const MyApp(),
-    ),
+    )
   );
 }
 
