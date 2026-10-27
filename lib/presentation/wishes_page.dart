@@ -19,8 +19,6 @@ class WishesPage extends StatelessWidget {
             style: TextStyle(fontWeight: FontWeight.bold),
           ),
           bottom: const TabBar(
-            indicatorColor: Colors.pinkAccent,
-            labelColor: Colors.black,
             unselectedLabelColor: Colors.grey,
             tabs: [
               Text('我的心愿'),

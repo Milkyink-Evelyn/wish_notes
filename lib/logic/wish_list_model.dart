@@ -15,7 +15,6 @@ class WishListModel extends ChangeNotifier {
   /// 从本地加载数据(不请求网络)
   Future<void> loadLocalData() async {
     _isLoading = true;
-    notifyListeners(); // 转圈圈~
 
     try {
       _wishes = await _repo.getMyWishes();
@@ -23,7 +22,6 @@ class WishListModel extends ChangeNotifier {
       debugPrint('加载本地数据失败: $e');
     } finally {
       _isLoading = false;
-      notifyListeners(); // 加载结束
     }
   }
 
@@ -34,7 +32,6 @@ class WishListModel extends ChangeNotifier {
       if (token == null || token.isEmpty) {
         // 未登录：只重新加载本地数据，不请求网络
         _wishes = await _repo.getMyWishes();
-        notifyListeners();// 更新结束
         debugPrint('未登录，仅刷新本地数据');
         return;
       }
@@ -44,8 +41,6 @@ class WishListModel extends ChangeNotifier {
       _wishes = await _repo.getMyWishes();
     } catch (e) {
       debugPrint('同步刷新失败: $e');
-    } finally {
-      notifyListeners(); // 更新结束
     }
   }
 }

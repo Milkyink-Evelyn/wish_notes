@@ -1,8 +1,11 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:wish_notes/logic/wish_list_model.dart';
+import 'package:wish_notes/app_theme.dart';
+import 'logic/wish_list_model.dart';
+import 'presentation/splash_page.dart';
 import 'logic/auth_model.dart';
-import 'presentation/main_navigation_page.dart';
 import 'utils/sp_utils.dart';
 import 'utils/db_utils.dart';
 
@@ -30,10 +33,32 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const MaterialApp(
+    return MaterialApp(
       title: '心愿便签',
       debugShowCheckedModeBanner: false,
-      home: MainNavigationPage(), // 直接展示底部导航
+      theme: AppTheme.light,
+      
+      builder: (context, child) {
+        return Stack(
+          children: [
+            // 全局背景图
+            Positioned.fill(
+              child: ImageFiltered(
+                imageFilter: ImageFilter.blur(sigmaX: 1.3, sigmaY: 1.3),
+                child: Image.asset(
+                  'assets/images/LuckyMiao.png',
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => Container(color: Colors.white),
+                ),
+              ),
+            ),
+            // 页面路由
+            if (child != null) child,
+          ],
+        );
+      },
+      
+      home: const SplashPage(),
     );
   }
 }

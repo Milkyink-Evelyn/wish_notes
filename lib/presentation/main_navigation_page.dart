@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'wishes_page.dart';
 import 'profile_page.dart';
+import '../widgets/background.dart'; 
 
 class MainNavigationPage extends StatefulWidget {
-  const MainNavigationPage({super.key});
+  final bool playFadeIn; 
+  const MainNavigationPage({super.key, this.playFadeIn = false});
 
   @override
   State<MainNavigationPage> createState() => _MainNavigationPageState();
@@ -20,13 +22,30 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    // 1. 把原来的 Scaffold 抽出来作为基础组件
+    final scaffold = Scaffold(
       // 页面内容能够延伸到最底部
       extendBody: true,
-      // 使用 IndexedStack 保持页面状态，避免每次切换时重新构建页面
-      body: IndexedStack(
-        index: _currentIndex,
-        children: _pages,
+      backgroundColor: Colors.transparent, // 必须透明，让底层的背景图露出来
+      body: Stack(
+        children: [
+          
+          ..._pages.asMap().entries.map((entry) {
+            int idx = entry.key;
+            Widget page = entry.value;
+            bool isCurrent = _currentIndex == idx;
+
+            return AnimatedOpacity(
+              opacity: isCurrent ? 1.0 : 0.0,
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeInOut,
+              child: IgnorePointer(
+                ignoring: !isCurrent, // 隐藏的页面不响应点击事件
+                child: page,
+              ),
+            );
+          }),
+        ],
       ),
       bottomNavigationBar: SizedBox(
         // 导航栏总高度为 110，包含安全区域的高度
@@ -53,7 +72,7 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
                 },
               ),
             ),
-            // Tap
+            // Tab
             Positioned(
               bottom: 15,
               left: 0,
@@ -81,7 +100,7 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
                   width: 60,
                   height: 60,
                   decoration: BoxDecoration(
-                    color: const Color.fromARGB(228, 255, 205, 244),
+                    color: Color.fromARGB(228, 248, 226, 243),
                     shape: BoxShape.circle,
                     boxShadow: [
                       BoxShadow(
@@ -99,6 +118,22 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
         ),
       ),
     );
+
+    // 接收启动页传过来的 playFadeIn，执行 800ms 整体淡入
+    if (widget.playFadeIn) {
+      return TweenAnimationBuilder<double>(
+        tween: Tween(begin: 0.0, end: 1.0),
+        duration: const Duration(milliseconds: 800), 
+        curve: Curves.easeInOut,
+        builder: (context, value, child) {
+          return Opacity(opacity: value, child: child);
+        },
+        child: scaffold,
+      );
+    }
+
+    // 正常状态直接返回
+    return scaffold;
   }
 
   Widget _buildNavItem(int index, String label, String imageName) {
