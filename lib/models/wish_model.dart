@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/material.dart';
 
 /// 存储模式
 enum StorageMode {
@@ -40,6 +41,30 @@ enum WishVisibility {
   }
 }
 
+/// 心愿分类(纯本地扩展, 云端视为其他)
+enum WishCategory {
+  study('学习成长', Icons.menu_book, Colors.blue),
+  life('生活日常', Icons.coffee, Colors.orange),
+  travel('旅行探索', Icons.flight_takeoff, Colors.green),
+  hobby('兴趣爱好', Icons.palette, Colors.purple),
+  other('其他', Icons.star, Colors.grey);
+
+  final String label; // 展示的中文文字
+  final IconData icon; // 图标
+  final Color color; // 颜色
+
+  const WishCategory(this.label, this.icon, this.color);
+
+  /// 从数据库里存的 name 字符串转换回枚举
+  static WishCategory fromString(String? str) {
+    if (str == null || str.isEmpty) return WishCategory.other;
+    return WishCategory.values.firstWhere(
+      (e) => e.name == str,
+      orElse: () => WishCategory.other, // 找不到或者为 null 时兜视为为“其他”
+    );
+  }
+}
+
 class WishModel {
   final int? localId;
   final int? serverId;
@@ -49,7 +74,7 @@ class WishModel {
   final StorageMode storageMode;
   final int createdAt;
   final bool isDeleted;
-  final String? category;
+  final WishCategory category;
   final List<CommentModel> comments;
 
   WishModel({
@@ -61,7 +86,7 @@ class WishModel {
     required this.storageMode,
     required this.createdAt,
     required this.isDeleted,
-    this.category,
+    this.category = WishCategory.other,
     this.comments = const [],
   });
 
@@ -76,7 +101,7 @@ class WishModel {
       'storage_mode': storageMode.value,
       'created_at': createdAt,
       'is_deleted': isDeleted ? 1 : 0,
-      'category': category,
+      'category': category.name,
       'comments_json': jsonEncode(comments.map((e) => e.toJson()).toList()),
     };
   }
@@ -98,7 +123,7 @@ class WishModel {
       storageMode: StorageMode.fromString(map['storage_mode'] as String),
       createdAt: map['created_at'] as int,
       isDeleted: (map['is_deleted'] as int) == 1,
-      category: map['category'] as String?,
+      category: WishCategory.fromString(map['category'] as String?),
       comments: commentList,
     );
   }
@@ -115,11 +140,39 @@ class WishModel {
       // 云端返回的时间戳是字符串格式, 需要解析成DateTime再转成毫秒数
       createdAt: DateTime.parse(json['created_at'] as String).millisecondsSinceEpoch,
       isDeleted: false, // 云端数据默认未删除
-      category: null, // 后端接口没有分类字段, 只能沃自己来了(沃悲伤.jpg)
+      category: WishCategory.other, // 后端接口没有分类字段, 只能沃自己来了(沃悲伤.jpg)
       comments: (json['comments'] as List? ?? []).map((e) => CommentModel.fromJson(e)).toList(),
     );
   }
+  
+  /// 复制并修改字段
+  WishModel copyWith({
+    int? localId,
+    int? serverId,
+    String? content,
+    WishVisibility? visibility,
+    String? status,
+    StorageMode? storageMode,
+    int? createdAt,
+    bool? isDeleted,
+    WishCategory? category,
+    List<CommentModel>? comments,
+  }) {
+    return WishModel(
+      localId: localId ?? this.localId,
+      serverId: serverId ?? this.serverId,
+      content: content ?? this.content,
+      visibility: visibility ?? this.visibility,
+      status: status ?? this.status,
+      storageMode: storageMode ?? this.storageMode,
+      createdAt: createdAt ?? this.createdAt,
+      isDeleted: isDeleted ?? this.isDeleted,
+      category: category ?? this.category,
+      comments: comments ?? this.comments,
+    );
+  }
 }
+
 
 class CommentModel {
   final int id;

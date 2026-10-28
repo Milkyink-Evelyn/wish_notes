@@ -15,6 +15,7 @@ class WishListModel extends ChangeNotifier {
   /// 从本地加载数据(不请求网络)
   Future<void> loadLocalData() async {
     _isLoading = true;
+    notifyListeners();
 
     try {
       _wishes = await _repo.getMyWishes();
@@ -22,25 +23,26 @@ class WishListModel extends ChangeNotifier {
       debugPrint('加载本地数据失败: $e');
     } finally {
       _isLoading = false;
+      notifyListeners();
     }
   }
 
   /// 下拉刷新: 触发云端同步，然后再加载本地数据
   Future<void> syncAndRefresh() async {
+    final token = SPUtils.getString(SPKey.token);
     try {
-      final token = SPUtils.getString(SPKey.token);
-      if (token == null || token.isEmpty) {
+      if (token != null && token.isNotEmpty) {
+        // 已登录：执行完整的云端同步流程
+        await _repo.syncAll();
+      } else {
         // 未登录：只重新加载本地数据，不请求网络
-        _wishes = await _repo.getMyWishes();
-        debugPrint('未登录，仅刷新本地数据');
-        return;
+        debugPrint('未登录，仅刷新本地');
       }
-
-      // 已登录：执行完整的云端同步流程
-      await _repo.syncAll();
-      _wishes = await _repo.getMyWishes();
     } catch (e) {
       debugPrint('同步刷新失败: $e');
+    } finally {
+      _wishes = await _repo.getMyWishes();
+      notifyListeners();
     }
   }
 }

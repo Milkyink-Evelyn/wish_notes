@@ -3,7 +3,9 @@ import '../../models/wish_model.dart';
 
 class WishCard extends StatelessWidget {
   final WishModel wish;
-  const WishCard({super.key, required this.wish});
+  final VoidCallback? onChangeStatus;
+  final VoidCallback? onDelete;
+  const WishCard({super.key, required this.wish, this.onChangeStatus, this.onDelete});
 
   @override
   Widget build(BuildContext context) {
@@ -30,6 +32,7 @@ return Container(
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
+              // 状态标签
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
@@ -45,15 +48,35 @@ return Container(
                   ),
                 ),
               ),
-              const Icon(Icons.more_horiz, color: Colors.grey, size: 20),
+              PopupMenuButton<String>(
+                icon: const Icon(Icons.more_horiz, color: Colors.grey, size: 20),
+                onSelected: (value) {
+                  if (value == 'toggle') onChangeStatus?.call();
+                  if (value == 'delete') onDelete?.call();
+                },
+                itemBuilder: (context) => [
+                  PopupMenuItem(
+                    value: 'toggle',
+                    child: Text(isRealized ? '标记为未实现' : '标记为已实现'),
+                  ),
+                  const PopupMenuItem(
+                    value: 'delete',
+                    child: Text('删除', style: TextStyle(color: Colors.red)),
+                  ),
+                ],
+              ),
             ],
           ),
           const SizedBox(height: 12),
+
+          // 心愿内容
           Text(
             wish.content,
             style: const TextStyle(fontSize: 16, height: 1.4, color: Colors.black87),
           ),
           const SizedBox(height: 16),
+
+          // 底部时间与评论
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
@@ -62,7 +85,7 @@ return Container(
               Text('${wish.comments.length}', style: const TextStyle(fontSize: 12, color: Colors.grey)),
               const SizedBox(width: 16),
               Text(
-                '${wish.createdAt}',
+                _formatTime(wish.createdAt),
                 style: const TextStyle(fontSize: 12, color: Colors.grey),
               ),
             ],
@@ -71,4 +94,13 @@ return Container(
       ),
     );
   }
+  String _formatTime(int timestamp) {
+    final dt = DateTime.fromMillisecondsSinceEpoch(timestamp);
+    final now = DateTime.now();
+    if (dt.year == now.year && dt.month == now.month && dt.day == now.day) {
+      return '今天 ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+    }
+    return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+  }
 }
+

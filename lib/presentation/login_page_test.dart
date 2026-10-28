@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../utils/toast_utils.dart';
 import '../logic/auth_model.dart';
 import 'register_page_test.dart';
 
@@ -40,13 +41,9 @@ class _LoginPageState extends State<LoginPage> {
 
     // 根据结果给反馈
     if (success) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('登录成功！')),
-      );
+      context.showSnack('登录成功！');
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(auth.errorMsg ?? '登录失败'), backgroundColor: Colors.red),
-      );
+      context.showSnack(auth.errorMsg ?? '登录失败');
     }
   }
 

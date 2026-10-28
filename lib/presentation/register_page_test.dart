@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../utils/toast_utils.dart';
 import '../logic/auth_model.dart';
 
 class RegisterPage extends StatefulWidget {
@@ -37,14 +38,10 @@ class _RegisterPageState extends State<RegisterPage> {
     if (!mounted) return;
 
     if (success) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('注册成功！已自动登录')),
-      );
+      context.showSnack('注册成功！已自动登录');
       Navigator.pop(context); // 注册成功，返回上一页（登录页）
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(auth.errorMsg ?? '注册失败'), backgroundColor: Colors.red),
-      );
+      context.showSnack(auth.errorMsg ?? '注册失败');
     }
   }
 

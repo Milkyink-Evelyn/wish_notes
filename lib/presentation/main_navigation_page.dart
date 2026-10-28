@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../utils/toast_utils.dart';
+import '../logic/wish_list_model.dart';
+import 'wish_form_page.dart';
 import 'wishes_page.dart';
 import 'profile_page.dart';
-import '../widgets/background.dart'; 
 
 class MainNavigationPage extends StatefulWidget {
   final bool playFadeIn; 
@@ -91,10 +94,16 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
             Positioned(
               bottom: 25,
               child: GestureDetector(
-                onTap: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text("准备发布心愿(待完成)"), duration: Duration(seconds: 1),),
+                onTap: () async {
+                  final result = await Navigator.push(
+                    context, 
+                    MaterialPageRoute(builder: (_) => const WishFormPage()),
                   );
+                  debugPrint('--- 收到表单结果: $result ---');
+                  if (result == true && context.mounted) {
+                      context.showSnack('心愿已记录~');
+                    context.read<WishListModel>().loadLocalData(); 
+                  }
                 },
                 child: Container(
                   width: 60,

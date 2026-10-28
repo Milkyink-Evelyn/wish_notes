@@ -262,4 +262,15 @@ class WishRepository {
       rethrow; // 抛给 UI 层去弹窗提示
     }
   }
+
+  /// 更新本地心愿数据（用于切换状态）
+  Future<void> updateWishLocal(WishModel wish) async {
+    final db = DBUtils.db;
+    await db.update(
+      WishTable.name,
+      wish.toMap(),
+      where: '${WishTable.colLocalId} = ?',
+      whereArgs: [wish.localId],
+    );
+  }
 }

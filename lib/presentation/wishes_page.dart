@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../logic/wish_list_model.dart';
+import '../repositories/wish_repository.dart';
 import '../widgets/wish_card.dart';
 
 class WishesPage extends StatelessWidget {
@@ -44,6 +45,7 @@ class _MyWishesView extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<WishListModel>(
       builder: (context, model, child) {
+        debugPrint('--- 列表刷新了，当前数据量: ${model.wishes.length} ---');
         if (model.isLoading && model.wishes.isEmpty) {
           return const Center(child: CircularProgressIndicator(),);
         }
@@ -74,7 +76,42 @@ class _MyWishesView extends StatelessWidget {
               if (index == model.wishes.length) {
                 return const _ListFooter();
               }
-              return WishCard(wish: model.wishes[index]);
+              final wish = model.wishes[index];
+              return WishCard(
+                wish: wish,
+                onChangeStatus: () async {
+                  final repo = WishRepository();
+                  final nextStatus = wish.status == 'REALIZED' ? 'UNREALIZED' : 'REALIZED';
+                  final updated = wish.copyWith(status: nextStatus);
+
+                  await repo.updateWishLocal(updated);
+
+                  if (context.mounted) {
+                    context.read<WishListModel>().loadLocalData();
+                  }
+                },
+                onDelete: () async {
+                  final confirm = await showDialog<bool>(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      title: const Text('删除心愿'),
+                      content: const Text('确定要删除这个心愿吗？'),
+                      actions: [
+                        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+                        TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('删除')),
+                      ],
+                    ),
+                  );
+
+                  if (confirm == true) {
+                    final repo = WishRepository();
+                    await repo.softDeleteWish(wish.localId!);
+                    if (context.mounted) {
+                      context.read<WishListModel>().loadLocalData();
+                    }
+                  }
+                },
+              );
             },
           ),
         );

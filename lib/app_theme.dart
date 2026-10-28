@@ -23,7 +23,7 @@ class AppTheme {
         ),
 
         appBarTheme: const AppBarTheme(
-          backgroundColor: Color.fromARGB(209, 248, 226, 243),
+          backgroundColor: Color.fromARGB(171, 249, 228, 244),
           surfaceTintColor: Colors.transparent,
           elevation: 0,
           centerTitle: true,
