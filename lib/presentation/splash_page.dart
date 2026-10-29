@@ -2,6 +2,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import '../logic/auth_model.dart';
 import '../logic/wish_list_model.dart';
 import 'main_navigation_page.dart';
 
@@ -65,7 +66,8 @@ class _SplashPageState extends State<SplashPage>
       final delayFuture = Future.delayed(const Duration(milliseconds: 1500));
 
       // 2. 预加载数据
-      final loadDataFuture = wishModel.loadLocalData();
+      final currentUsername = context.read<AuthModel>().username;
+      final loadDataFuture = wishModel.loadLocalData(currentUsername);
 
       // 3. 预缓存图片
       final preCacheFuture = Future.wait(

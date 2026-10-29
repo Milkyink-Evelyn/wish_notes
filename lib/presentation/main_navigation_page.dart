@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:wish_notes/logic/auth_model.dart';
 import '../utils/toast_utils.dart';
 import '../logic/wish_list_model.dart';
 import 'wish_form_page.dart';
@@ -101,8 +102,9 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
                   );
                   debugPrint('--- 收到表单结果: $result ---');
                   if (result == true && context.mounted) {
-                      context.showSnack('心愿已记录~');
-                    context.read<WishListModel>().loadLocalData(); 
+                    context.showSnack('心愿已记录~');
+                    final currentUsername = context.read<AuthModel>().username;
+                    context.read<WishListModel>().loadLocalData(currentUsername); 
                   }
                 },
                 child: Container(

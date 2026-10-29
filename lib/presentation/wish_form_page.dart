@@ -29,6 +29,8 @@ class _WishFormPageState extends State<WishFormPage> {
 
   Future<void> _saveWish() async {
     final content = _contentController.text.trim();
+    final currentUsername = context.read<AuthModel>().username;
+
     if (content.isEmpty) {
       context.showSnack('是不是忘记写心愿啦~?');
       return;
@@ -45,6 +47,7 @@ class _WishFormPageState extends State<WishFormPage> {
         createdAt: DateTime.now().millisecondsSinceEpoch,
         isDeleted: false,
         category: _selectedCategory,
+        ownerUsername: currentUsername,
       );
 
       final repo = WishRepository();

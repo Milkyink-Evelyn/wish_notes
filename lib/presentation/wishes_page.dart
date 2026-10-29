@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../logic/auth_model.dart';
 import '../logic/wish_list_model.dart';
 import '../repositories/wish_repository.dart';
 import '../widgets/wish_card.dart';
@@ -45,6 +46,8 @@ class _MyWishesView extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<WishListModel>(
       builder: (context, model, child) {
+        final currentUsername = context.read<AuthModel>().username;
+
         debugPrint('--- 列表刷新了，当前数据量: ${model.wishes.length} ---');
         if (model.isLoading && model.wishes.isEmpty) {
           return const Center(child: CircularProgressIndicator(),);
@@ -52,7 +55,7 @@ class _MyWishesView extends StatelessWidget {
 
         if (model.wishes.isEmpty) {
           return RefreshIndicator(
-            onRefresh: () => model.syncAndRefresh(),
+            onRefresh: () => model.syncAndRefresh(currentUsername),
             child: ListView(
               children: [
                 SizedBox(height: 150,),
@@ -68,7 +71,7 @@ class _MyWishesView extends StatelessWidget {
         }
 
         return RefreshIndicator(
-          onRefresh: () => model.syncAndRefresh(),
+          onRefresh: () => model.syncAndRefresh(currentUsername),
           child: ListView.builder(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
             itemCount: model.wishes.length + 1,
@@ -87,7 +90,7 @@ class _MyWishesView extends StatelessWidget {
                   await repo.updateWishLocal(updated);
 
                   if (context.mounted) {
-                    context.read<WishListModel>().loadLocalData();
+                    context.read<WishListModel>().loadLocalData(currentUsername);
                   }
                 },
                 onDelete: () async {
@@ -107,7 +110,7 @@ class _MyWishesView extends StatelessWidget {
                     final repo = WishRepository();
                     await repo.softDeleteWish(wish.localId!);
                     if (context.mounted) {
-                      context.read<WishListModel>().loadLocalData();
+                      context.read<WishListModel>().loadLocalData(currentUsername);
                     }
                   }
                 },
