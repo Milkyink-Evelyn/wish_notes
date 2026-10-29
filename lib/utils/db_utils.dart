@@ -25,6 +25,8 @@ abstract class WishTable {
   static const String colCategory = 'category';
   /// 评论
   static const String colComments = 'comments_json';
+  /// 评论作者用户名
+  static const String colOwnerUsername = 'owner_username';
 }
 
 /// DB工具类
@@ -39,7 +41,7 @@ class DBUtils {
 
     _db = await openDatabase(
       path,
-      version: 1,
+      version: 2,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE ${WishTable.name} (
@@ -52,9 +54,17 @@ class DBUtils {
             ${WishTable.colCreatedAt} INTEGER NOT NULL,
             ${WishTable.colIsDeleted} INTEGER NOT NULL DEFAULT 0,
             ${WishTable.colCategory} TEXT,
-            ${WishTable.colComments} TEXT
+            ${WishTable.colComments} TEXT,
+            ${WishTable.colOwnerUsername} TEXT
           )
         ''');
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await db.execute(
+            'ALTER TABLE ${WishTable.name} ADD COLUMN ${WishTable.colOwnerUsername} TEXT'
+          );
+        }
       },
     );
   }

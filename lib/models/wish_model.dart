@@ -76,6 +76,7 @@ class WishModel {
   final bool isDeleted;
   final WishCategory category;
   final List<CommentModel> comments;
+  final String? ownerUsername;
 
   WishModel({
     this.localId,
@@ -88,6 +89,7 @@ class WishModel {
     required this.isDeleted,
     this.category = WishCategory.other,
     this.comments = const [],
+    this.ownerUsername,
   });
 
   /// 将对象转成Map，以便存入数据库
@@ -103,6 +105,7 @@ class WishModel {
       'is_deleted': isDeleted ? 1 : 0,
       'category': category.name,
       'comments_json': jsonEncode(comments.map((e) => e.toJson()).toList()),
+      'owner_username': ownerUsername,
     };
   }
 
@@ -125,6 +128,7 @@ class WishModel {
       isDeleted: (map['is_deleted'] as int) == 1,
       category: WishCategory.fromString(map['category'] as String?),
       comments: commentList,
+      ownerUsername: map['owner_username'] as String?,
     );
   }
 
@@ -138,10 +142,11 @@ class WishModel {
       status: json['status'] ?? 'UNREALIZED',
       storageMode: mode,
       // 云端返回的时间戳是字符串格式, 需要解析成DateTime再转成毫秒数
-      createdAt: DateTime.parse(json['created_at'] as String).millisecondsSinceEpoch,
+      createdAt: DateTime.parse(json['createdAt'] as String).millisecondsSinceEpoch,
       isDeleted: false, // 云端数据默认未删除
       category: WishCategory.other, // 后端接口没有分类字段, 只能沃自己来了(沃悲伤.jpg)
       comments: (json['comments'] as List? ?? []).map((e) => CommentModel.fromJson(e)).toList(),
+      ownerUsername: json['username'] as String?,
     );
   }
   
@@ -157,6 +162,7 @@ class WishModel {
     bool? isDeleted,
     WishCategory? category,
     List<CommentModel>? comments,
+    String? ownerUsername,
   }) {
     return WishModel(
       localId: localId ?? this.localId,
@@ -169,6 +175,7 @@ class WishModel {
       isDeleted: isDeleted ?? this.isDeleted,
       category: category ?? this.category,
       comments: comments ?? this.comments,
+      ownerUsername: ownerUsername ?? this.ownerUsername,
     );
   }
 }

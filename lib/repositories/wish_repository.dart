@@ -7,16 +7,22 @@ class WishRepository {
   final WishApi _api = WishApi();
 
   /// 获取本地所有心愿(不包含软删除)
-  Future<List<WishModel>> getMyWishes() async {
+  Future<List<WishModel>> getMyWishes({String? ownerUsername}) async {
     final db = DBUtils.db;
+    String where = '${WishTable.colIsDeleted} = 0';
+    List<dynamic> whereArgs = [];
+
+    if (ownerUsername != null) {
+      where += ' AND ${WishTable.colOwnerUsername} = ?';
+      whereArgs.add(ownerUsername);
+    }
 
     final maps = await db.query(
       WishTable.name,
-      where: '${WishTable.colIsDeleted} = ?',
-      whereArgs: [0],
+      where: where,
+      whereArgs: whereArgs,
       orderBy: '${WishTable.colCreatedAt} DESC',
     );
-
     return maps.map((e) => WishModel.fromMap(e)).toList();
   }
 
@@ -57,7 +63,7 @@ class WishRepository {
   }
 
   /// 从云端拉取我的心愿，并合并到本地(智能模式同步数据)
-  Future<void> pullMyWishes() async {
+  Future<void> pullMyWishes(String currentUsername) async {
     final db = DBUtils.db;
     final cloudList = await _api.fetchMyWishes();
     final Set<int> cloudServerIds = {}; // 清理僵尸数据用
@@ -66,11 +72,11 @@ class WishRepository {
       final cloudWish = WishModel.fromJson(json, StorageMode.smart);
       cloudServerIds.add(cloudWish.serverId!);
 
-      // 查询本地是否有该云端记录
+      // 查询本地是否有该云端记录(加入用户隔离)
       final localMaps = await db.query(
         WishTable.name,
-        where: '${WishTable.colServerId} = ?',
-        whereArgs: [cloudWish.serverId],
+        where: '${WishTable.colServerId} = ? AND ${WishTable.colOwnerUsername} = ?',
+        whereArgs: [cloudWish.serverId, currentUsername],
       );
 
       if (localMaps.isNotEmpty) {
@@ -102,7 +108,8 @@ class WishRepository {
     // 处理云端被删除的数据而本地仍存在的僵尸数据
     final localSyncedWishes = await db.query(
       WishTable.name,
-      where: '${WishTable.colServerId} IS NOT NULL AND ${WishTable.colIsDeleted} = 0',
+      where: '${WishTable.colServerId} IS NOT NULL AND ${WishTable.colIsDeleted} = 0 AND ${WishTable.colOwnerUsername} = ?',
+      whereArgs: [currentUsername],
     );
 
     for (var map in localSyncedWishes) {
@@ -118,12 +125,12 @@ class WishRepository {
   }
 
   /// 处理墓碑软删除
-  Future<void> syncDeletedWishes() async {
+  Future<void> syncDeletedWishes(String currentUsername) async {
     final db = DBUtils.db;
     final deletedMaps = await db.query(
       WishTable.name,
-      where: '${WishTable.colIsDeleted} = ? AND ${WishTable.colServerId} IS NOT NULL',
-      whereArgs: [1],
+      where: '${WishTable.colIsDeleted} = ? AND ${WishTable.colServerId} IS NOT NULL AND ${WishTable.colOwnerUsername} = ?',
+      whereArgs: [1, currentUsername],
     );
 
     for (var map in deletedMaps) {
@@ -144,7 +151,7 @@ class WishRepository {
   }
 
   /// 将本地新建的智能/云端心愿推送到服务器
-  Future<void> pushNewWishes() async {
+  Future<void> pushNewWishes(String currentUsername) async {
     final db = DBUtils.db;
 
     final unsyncedMaps = await db.query(
@@ -153,8 +160,9 @@ class WishRepository {
         ${WishTable.colServerId} IS NULL 
         AND ${WishTable.colIsDeleted} = 0 
         AND ${WishTable.colStorageMode} != ?
+        AND ${WishTable.colOwnerUsername} = ?
       ''',
-      whereArgs: [StorageMode.local.value],
+      whereArgs: [StorageMode.local.value, currentUsername],
     );
 
     for (var map in unsyncedMaps) {
@@ -180,7 +188,7 @@ class WishRepository {
   }
 
   /// 将本地已修改状态的心愿推送到云端
-  Future<void> pushUpdatedStatus() async {
+  Future<void> pushUpdatedStatus(String currentUsername) async {
     final db = DBUtils.db;
     // 查出所有：已同步过(server_id不为空)、未删除、非纯本地 且 状态与云端不一致的心愿
     // (因为本地没有记录云端上一次的状态,为了简单,我们这里全量推送本地的状态)
@@ -190,8 +198,9 @@ class WishRepository {
         ${WishTable.colServerId} IS NOT NULL 
         AND ${WishTable.colIsDeleted} = 0 
         AND ${WishTable.colStorageMode} != ?
+        AND ${WishTable.colOwnerUsername} = ?
       ''',
-      whereArgs: [StorageMode.local.value],
+      whereArgs: [StorageMode.local.value, currentUsername],
     );
 
     for (var map in maps) {
@@ -205,7 +214,7 @@ class WishRepository {
   }
 
   /// 推送本地修改过内容/可见性的心愿到云端
-  Future<void> pushUpdatedWishes() async {
+  Future<void> pushUpdatedWishes(String currentUsername) async {
     final db = DBUtils.db;
 
     // 查出所有已同步过、未删除、非纯本地的数据
@@ -215,8 +224,9 @@ class WishRepository {
         ${WishTable.colServerId} IS NOT NULL 
         AND ${WishTable.colIsDeleted} = 0 
         AND ${WishTable.colStorageMode} != ?
+        AND ${WishTable.colOwnerUsername} = ?
       ''',
-      whereArgs: [StorageMode.local.value],
+      whereArgs: [StorageMode.local.value, currentUsername],
     );
 
     for (var map in maps) {
@@ -238,23 +248,28 @@ class WishRepository {
     }
   }
 
-  /// 完整的智能同步流程
-  Future<void> syncAll() async {
+  /// 完整的云端同步流程
+  Future<void> syncAll(String? currentUsername) async {
+    if (currentUsername == null || currentUsername.isEmpty) {
+      debugPrint('未登录, 跳过云端同步');
+      return;
+    }
+    
     try {
       debugPrint('--- 开始同步 ---');
       
       // 1. 云端删除(处理本地软删除的墓碑)
-      await syncDeletedWishes();
+      await syncDeletedWishes(currentUsername);
       
       // 2. 推送新建(把本地没上过云的心愿传上去)
-      await pushNewWishes();
+      await pushNewWishes(currentUsername);
       
       // 3. 推送修改(把本地修改过的内容和状态传上去)
-      await pushUpdatedWishes();
-      await pushUpdatedStatus();
+      await pushUpdatedWishes(currentUsername);
+      await pushUpdatedStatus(currentUsername);
       
       // 4. 拉取合并(最后拉取，获取云端最新数据)
-      await pullMyWishes();
+      await pullMyWishes(currentUsername);
       
       debugPrint('--- 同步完成 ---');
     } catch (e) {
@@ -271,6 +286,22 @@ class WishRepository {
       wish.toMap(),
       where: '${WishTable.colLocalId} = ?',
       whereArgs: [wish.localId],
+    );
+  }
+
+  /// 直接清空所有本地心愿(物理删除)
+  Future<void> clearAllLocalWishes() async {
+    final db = DBUtils.db;
+    await db.delete(WishTable.name);
+  }
+
+  /// 指定清理某个用户的本地心愿(物理删除)
+  Future<void> clearLocalWishesByUsername(String username) async {
+    final db = DBUtils.db;
+    await db.delete(
+      WishTable.name,
+      where: '${WishTable.colOwnerUsername} = ?',
+      whereArgs: [username],
     );
   }
 }
