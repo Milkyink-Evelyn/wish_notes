@@ -41,7 +41,7 @@ class _LoginPageState extends State<LoginPage> {
   Future<void> _submit() async {
     // 表单校验
     if (!_formKey.currentState!.validate()) return;
-    
+
     // 收起键盘
     FocusScope.of(context).unfocus();
 
@@ -83,83 +83,116 @@ class _LoginPageState extends State<LoginPage> {
         backgroundColor: AppTheme.mintAppBar,
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24.0),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              if (isLoggedIn)
-                const Text(
-                  '🎉 当前状态：已登录\n',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 16, color: Colors.green),
-                ),
-              const SizedBox(height: 24),
-
-              TextFormField(
-                controller: _userController,
-                decoration: const InputDecoration(
-                  labelText: '用户名',
-                  border: OutlineInputBorder(),
-                ),
-                validator: (v) => v!.trim().isEmpty ? '请输入用户名' : null,
+        padding: const EdgeInsets.fromLTRB(24, 28, 24, 24),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
+          decoration: BoxDecoration(
+            color: AppTheme.cardColor(context),
+            borderRadius: BorderRadius.circular(28),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.65)),
+            boxShadow: [
+              BoxShadow(
+                color: AppTheme.textColor.withValues(alpha: 0.08),
+                blurRadius: 20,
+                offset: const Offset(0, 8),
               ),
-              const SizedBox(height: 16),
-              
-              TextFormField(
-                controller: _passController,
-                obscureText: true,
-                decoration: const InputDecoration(
-                  labelText: '密码',
-                  border: OutlineInputBorder(),
-                ),
-                validator: (v) => (v == null || v.length < 6) ? '密码至少 6 位' : null,
-              ),
-
-              Row(
-                children: [
-                  Checkbox(
-                    value: _rememberAccount,
-                    onChanged: (value) {
-                      setState(() => _rememberAccount = value ?? false);
-                    },
+            ],
+          ),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              children: [
+                Image.asset(
+                  'assets/images/clover.png',
+                  width: 72,
+                  height: 72,
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, __, ___) => const Icon(
+                    Icons.favorite,
+                    size: 52,
+                    color: Colors.pinkAccent,
                   ),
-                  const Text('记住账号'),
-                ],
-              ),
-              const SizedBox(height: 8),
-
-              SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: ElevatedButton(
-                  onPressed: isLoading ? null : _submit,
-                  child: isLoading
-                      ? const CircularProgressIndicator()
-                      : const Text('登 录', style: TextStyle(fontSize: 16)),
                 ),
-              ),
+                const SizedBox(height: 8),
+                Text(
+                  '欢迎回来',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 20),
 
-              const SizedBox(height: 16),
-              TextButton(
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const RegisterPage()),
-                  );
-                },
-                child: const Text('还没有账号？去注册'),
-              ),
-              
-              if (isLoggedIn) ...[
+                if (isLoggedIn) ...[
+                  const Text(
+                    '当前状态：已登录',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 14, color: Colors.green),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+
+                TextFormField(
+                  controller: _userController,
+                  decoration: const InputDecoration(
+                    labelText: '用户名',
+                    border: OutlineInputBorder(),
+                  ),
+                  validator: (v) => v!.trim().isEmpty ? '请输入用户名' : null,
+                ),
+                const SizedBox(height: 16),
+
+                TextFormField(
+                  controller: _passController,
+                  obscureText: true,
+                  decoration: const InputDecoration(
+                    labelText: '密码',
+                    border: OutlineInputBorder(),
+                  ),
+                  validator: (v) => (v == null || v.length < 6) ? '密码至少 6 位' : null,
+                ),
+
+                Row(
+                  children: [
+                    Checkbox(
+                      value: _rememberAccount,
+                      onChanged: (value) {
+                        setState(() => _rememberAccount = value ?? false);
+                      },
+                    ),
+                    const Text('记住账号'),
+                  ],
+                ),
+                const SizedBox(height: 8),
+
+                SizedBox(
+                  width: double.infinity,
+                  height: 50,
+                  child: ElevatedButton(
+                    onPressed: isLoading ? null : _submit,
+                    child: isLoading
+                        ? const CircularProgressIndicator()
+                        : const Text('登 录', style: TextStyle(fontSize: 16)),
+                  ),
+                ),
+
                 const SizedBox(height: 16),
                 TextButton(
-                  onPressed: () => context.read<AuthModel>().logout(),
-                  child: const Text('退出登录', style: TextStyle(color: Colors.red)),
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const RegisterPage()),
+                    );
+                  },
+                  child: const Text('还没有账号？去注册'),
                 ),
-              ]
-            ],
+
+                if (isLoggedIn) ...[
+                  const SizedBox(height: 16),
+                  TextButton(
+                    onPressed: () => context.read<AuthModel>().logout(),
+                    child: const Text('退出登录', style: TextStyle(color: Colors.red)),
+                  ),
+                ]
+              ],
+            ),
           ),
         ),
       ),

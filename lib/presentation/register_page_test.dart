@@ -61,75 +61,108 @@ class _RegisterPageState extends State<RegisterPage> {
         backgroundColor: AppTheme.mintAppBar,
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24.0),
-        child: Form(
-          key: _formKey,
-          autovalidateMode: AutovalidateMode.onUserInteraction,
-          child: Column(
-            children: [
-              // 根据接口文档：用户名 3-50 字符
-              TextFormField(
-                controller: _userController,
-                autovalidateMode: AutovalidateMode.onUserInteraction,
-                decoration: const InputDecoration(
-                  labelText: '用户名 (3-50位字母/数字/下划线)',
-                  border: OutlineInputBorder(),
-                ),
-                validator: (v) {
-                  final text = v?.trim() ?? '';
-                  if (!_usernameReg.hasMatch(text)) {
-                    return '用户名只能包含字母、数字、下划线, 长度 3-50';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16),
-              
-              // 昵称是可选的
-              TextFormField(
-                controller: _nicknameController,
-                autovalidateMode: AutovalidateMode.onUserInteraction,
-                decoration: const InputDecoration(
-                  labelText: '昵称 (可选)',
-                  border: OutlineInputBorder(),
-                ),
-                validator: (v) {
-                  final text = v?.trim() ?? '';
-                  if (text.length > 20) return '昵称不能超过 20 个字符';
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16),
-
-              // 密码至少 6 位
-              TextFormField(
-                controller: _passController,
-                obscureText: true,
-                autovalidateMode: AutovalidateMode.onUserInteraction,
-                decoration: const InputDecoration(
-                  labelText: '密码 (6-20位, 不含空格)',
-                  border: OutlineInputBorder(),
-                ),
-                validator: (v) {
-                  if (!_passwordReg.hasMatch(v ?? '')) {
-                    return '密码需为 6-20 位, 且不能包含空格';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 24),
-
-              SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: ElevatedButton(
-                  onPressed: isLoading ? null : _submit,
-                  child: isLoading
-                      ? const CircularProgressIndicator()
-                      : const Text('注 册', style: TextStyle(fontSize: 16)),
-                ),
+        padding: const EdgeInsets.fromLTRB(24, 28, 24, 24),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
+          decoration: BoxDecoration(
+            color: AppTheme.cardColor(context),
+            borderRadius: BorderRadius.circular(28),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.65)),
+            boxShadow: [
+              BoxShadow(
+                color: AppTheme.textColor.withValues(alpha: 0.08),
+                blurRadius: 20,
+                offset: const Offset(0, 8),
               ),
             ],
+          ),
+          child: Form(
+            key: _formKey,
+            autovalidateMode: AutovalidateMode.onUserInteraction,
+            child: Column(
+              children: [
+                Image.asset(
+                  'assets/images/clover.png',
+                  width: 72,
+                  height: 72,
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, __, ___) => const Icon(
+                    Icons.favorite,
+                    size: 52,
+                    color: Colors.pinkAccent,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '创建心愿账号',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 20),
+
+                // 根据接口文档：用户名 3-50 字符
+                TextFormField(
+                  controller: _userController,
+                  autovalidateMode: AutovalidateMode.onUserInteraction,
+                  decoration: const InputDecoration(
+                    labelText: '用户名 (3-50位字母/数字/下划线)',
+                    border: OutlineInputBorder(),
+                  ),
+                  validator: (v) {
+                    final text = v?.trim() ?? '';
+                    if (!_usernameReg.hasMatch(text)) {
+                      return '用户名只能包含字母、数字、下划线, 长度 3-50';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 16),
+
+                // 昵称是可选的
+                TextFormField(
+                  controller: _nicknameController,
+                  autovalidateMode: AutovalidateMode.onUserInteraction,
+                  decoration: const InputDecoration(
+                    labelText: '昵称 (可选)',
+                    border: OutlineInputBorder(),
+                  ),
+                  validator: (v) {
+                    final text = v?.trim() ?? '';
+                    if (text.length > 20) return '昵称不能超过 20 个字符';
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 16),
+
+                // 密码至少 6 位
+                TextFormField(
+                  controller: _passController,
+                  obscureText: true,
+                  autovalidateMode: AutovalidateMode.onUserInteraction,
+                  decoration: const InputDecoration(
+                    labelText: '密码 (6-20位, 不含空格)',
+                    border: OutlineInputBorder(),
+                  ),
+                  validator: (v) {
+                    if (!_passwordReg.hasMatch(v ?? '')) {
+                      return '密码需为 6-20 位, 且不能包含空格';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 24),
+
+                SizedBox(
+                  width: double.infinity,
+                  height: 50,
+                  child: ElevatedButton(
+                    onPressed: isLoading ? null : _submit,
+                    child: isLoading
+                        ? const CircularProgressIndicator()
+                        : const Text('注 册', style: TextStyle(fontSize: 16)),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),

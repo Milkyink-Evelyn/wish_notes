@@ -21,6 +21,7 @@ class _WishDetailPageState extends State<WishDetailPage> {
   final WishRepository _repo = WishRepository();
   final WishApi _api = WishApi();
   final _commentController = TextEditingController();
+  final _commentFocusNode = FocusNode();
 
   late WishModel _wish;
   bool _isSending = false;
@@ -35,6 +36,7 @@ class _WishDetailPageState extends State<WishDetailPage> {
   @override
   void dispose() {
     _commentController.dispose();
+    _commentFocusNode.dispose();
     super.dispose();
   }
 
@@ -178,6 +180,25 @@ class _WishDetailPageState extends State<WishDetailPage> {
     }
   }
 
+  /// 点击“回复”时, 把回复对象塞进输入框
+  void _startReply(CommentModel comment) {
+    if (!context.read<AuthModel>().isLoggedIn) {
+      context.showSnack('登录后才能回复哦~');
+      return;
+    }
+
+    final nickname = comment.nickname.isNotEmpty
+        ? comment.nickname
+        : (comment.username.isNotEmpty ? comment.username : '用户');
+    final prefix = '回复 @$nickname : ';
+
+    _commentController.value = TextEditingValue(
+      text: prefix,
+      selection: TextSelection.collapsed(offset: prefix.length),
+    );
+    _commentFocusNode.requestFocus();
+  }
+
   Future<void> _deleteComment(CommentModel comment) async {
     final confirm = await showDialog<bool>(
       context: context,
@@ -302,7 +323,11 @@ class _WishDetailPageState extends State<WishDetailPage> {
               const Icon(Icons.person_outline, size: 14, color: Colors.grey),
               const SizedBox(width: 4),
               Text(
-                _wish.ownerUsername ?? '本地游客',
+                _wish.ownerUsername ??
+                    (_wish.visibility == WishVisibility.public &&
+                            _wish.storageMode != StorageMode.local
+                        ? '匿名用户'
+                        : '本地游客'),
                 style: const TextStyle(fontSize: 12, color: Colors.grey),
               ),
             ],
@@ -438,12 +463,23 @@ class _WishDetailPageState extends State<WishDetailPage> {
     final isMine = auth.isLoggedIn &&
         (comment.username == auth.username ||
             (comment.userId != null && comment.userId == auth.userId));
+    final isAuthor = _wish.ownerUsername != null && comment.username == _wish.ownerUsername;
+
+    // 自己的评论偏粉, 作者的评论偏蓝, 其他人用默认卡片色
+    final Color bubbleColor;
+    if (isMine) {
+      bubbleColor = const Color(0xFFFFF0F6).withValues(alpha: 0.92);
+    } else if (isAuthor) {
+      bubbleColor = const Color(0xFFEFF7FF).withValues(alpha: 0.92);
+    } else {
+      bubbleColor = AppTheme.cardColor(context);
+    }
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: AppTheme.cardColor(context),
+        color: bubbleColor,
         borderRadius: BorderRadius.circular(14),
       ),
       child: Row(
@@ -474,17 +510,48 @@ class _WishDetailPageState extends State<WishDetailPage> {
                         ),
                       ),
                     ),
-                    const SizedBox(width: 8),
+                    if (isMine || isAuthor) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: (isMine ? Colors.pinkAccent : Colors.blue)
+                              .withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          isMine ? '我' : '作者',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: isMine ? Colors.pinkAccent : Colors.blue,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 5),
+                _buildCommentContent(comment.content),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
                     Text(
                       _formatCommentTime(comment.createdAt),
                       style: const TextStyle(fontSize: 11, color: Colors.grey),
                     ),
+                    const Spacer(),
+                    GestureDetector(
+                      onTap: () => _startReply(comment),
+                      behavior: HitTestBehavior.opaque,
+                      child: const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                        child: Text(
+                          '回复',
+                          style: TextStyle(fontSize: 12, color: Colors.blueGrey),
+                        ),
+                      ),
+                    ),
                   ],
-                ),
-                const SizedBox(height: 5),
-                Text(
-                  comment.content,
-                  style: const TextStyle(fontSize: 14, height: 1.4, color: Colors.black87),
                 ),
               ],
             ),
@@ -499,6 +566,31 @@ class _WishDetailPageState extends State<WishDetailPage> {
             ),
         ],
       ),
+    );
+  }
+
+  Widget _buildCommentContent(String content) {
+    // 识别人工拼上的 "回复 @xxx :" 前缀, 用蓝色标出来
+    final match = RegExp(r'^(回复\s*@[^:：\n]+?\s*[:：]\s*)').firstMatch(content);
+    if (match == null) {
+      return Text(
+        content,
+        style: const TextStyle(fontSize: 14, height: 1.4, color: Colors.black87),
+      );
+    }
+
+    final prefix = match.group(1)!;
+    return Text.rich(
+      TextSpan(
+        children: [
+          TextSpan(
+            text: prefix,
+            style: const TextStyle(color: Colors.blue),
+          ),
+          TextSpan(text: content.substring(prefix.length)),
+        ],
+      ),
+      style: const TextStyle(fontSize: 14, height: 1.4, color: Colors.black87),
     );
   }
 
@@ -568,6 +660,7 @@ class _WishDetailPageState extends State<WishDetailPage> {
             Expanded(
               child: TextField(
                 controller: _commentController,
+                focusNode: _commentFocusNode,
                 minLines: 1,
                 maxLines: 3,
                 maxLength: 500,

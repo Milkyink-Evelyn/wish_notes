@@ -131,14 +131,19 @@ class WishRepository {
     final Set<int> cloudServerIds = {}; // 清理僵尸数据用
 
     for (var json in cloudList) {
-      final cloudWish = WishModel.fromJson(json, StorageMode.smart);
+      var cloudWish = WishModel.fromJson(json, StorageMode.smart);
+      // /wishes/me 只返回当前用户的数据, 后端漏了用户名就直接补上
+      if (cloudWish.ownerUsername == null) {
+        cloudWish = cloudWish.copyWith(ownerUsername: currentUsername);
+      }
       cloudServerIds.add(cloudWish.serverId!);
 
-      // 查询本地是否有该云端记录(加入用户隔离)
+      // 先按 serverId 找, 兼容之前被当成广场缓存存下来的情况
       final localMaps = await db.query(
         WishTable.name,
-        where: '${WishTable.colServerId} = ? AND ${WishTable.colOwnerUsername} = ?',
-        whereArgs: [cloudWish.serverId, currentUsername],
+        where: '${WishTable.colServerId} = ?',
+        whereArgs: [cloudWish.serverId],
+        orderBy: '${WishTable.colIsPublicCache} ASC', // 真实数据排在缓存前面
       );
 
       if (localMaps.isNotEmpty) {
@@ -148,13 +153,29 @@ class WishRepository {
           continue;
         }
 
-        if (localWish.visibility == WishVisibility.public) { // 公开心愿智能存储同步以服务器为主
+        if (!localWish.isPublicCache &&
+            localWish.ownerUsername != null &&
+            localWish.ownerUsername != currentUsername) { // 数据异常, 不覆盖别人的本地记录
+          continue;
+        }
+
+        if (localWish.isPublicCache) { // 广场缓存转为真实数据, 作者就是当前用户
+          final updateMap = cloudWish.toMap();
+          updateMap[WishTable.colLocalId] = localWish.localId;
+          updateMap[WishTable.colCategory] = localWish.category.name;
+          updateMap[WishTable.colIsPublicCache] = 0;
+          await db.update(
+            WishTable.name,
+            updateMap,
+            where: '${WishTable.colLocalId} = ?',
+            whereArgs: [localWish.localId],
+          );
+        } else if (localWish.visibility == WishVisibility.public) { // 公开心愿智能存储同步以服务器为主
           final updateMap = cloudWish.toMap();
           updateMap[WishTable.colLocalId] = localWish.localId;
           updateMap[WishTable.colIsDeleted] = localWish.isDeleted ? 1 : 0;
           await db.update(
             WishTable.name,
-
             updateMap,
             where: '${WishTable.colLocalId} = ?',
             whereArgs: [localWish.localId],
@@ -247,6 +268,15 @@ class WishRepository {
         debugPrint('推送新建心愿失败 localId=${localWish.localId}: $e');
       }
     }
+  }
+
+  /// 把单条本地心愿补传到云端, 返回带 serverId 的新对象
+  Future<WishModel> pushNewWish(WishModel wish) async {
+    final cloudData = await _api.createWish(wish.content, wish.visibility.value);
+    final synced = wish.copyWith(serverId: cloudData['id'] as int);
+
+    await updateWishLocal(synced);
+    return synced;
   }
 
   /// 将本地已修改状态的心愿推送到云端
@@ -360,6 +390,41 @@ class WishRepository {
     );
 
     return maps.map((e) => e[WishTable.colOwnerUsername] as String? ?? '').toList();
+  }
+
+  /// 统计旧版本遗留的无主公开心愿(不含广场缓存)
+  Future<int> countOrphanPublicWishes() async {
+    final db = DBUtils.db;
+    final result = await db.rawQuery(
+      '''
+      SELECT COUNT(*) AS total FROM ${WishTable.name}
+      WHERE ${WishTable.colOwnerUsername} IS NULL
+        AND ${WishTable.colIsPublicCache} = 0
+        AND ${WishTable.colIsDeleted} = 0
+        AND ${WishTable.colStorageMode} != ?
+        AND ${WishTable.colVisibility} = ?
+      ''',
+      [StorageMode.local.value, WishVisibility.public.value],
+    );
+
+    return (result.first['total'] as int?) ?? 0;
+  }
+
+  /// 把旧版本遗留的无主公开心愿归到指定账号, 返回认领数量
+  Future<int> claimOrphanPublicWishes(String username) async {
+    final db = DBUtils.db;
+    return await db.update(
+      WishTable.name,
+      {WishTable.colOwnerUsername: username},
+      where: '''
+        ${WishTable.colOwnerUsername} IS NULL
+        AND ${WishTable.colIsPublicCache} = 0
+        AND ${WishTable.colIsDeleted} = 0
+        AND ${WishTable.colStorageMode} != ?
+        AND ${WishTable.colVisibility} = ?
+      ''',
+      whereArgs: [StorageMode.local.value, WishVisibility.public.value],
+    );
   }
 
   /// 直接清空所有本地心愿(物理删除)

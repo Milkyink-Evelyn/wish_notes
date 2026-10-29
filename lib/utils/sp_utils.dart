@@ -4,7 +4,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 enum SPKey {
   token('auth_token'),
   userInfo('user_info'),
-  rememberedUsername('remembered_username');
+  rememberedUsername('remembered_username'),
+  orphanOwnerChecked('orphan_owner_checked');
 
   final String key;
   const SPKey(this.key);

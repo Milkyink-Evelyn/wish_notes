@@ -290,6 +290,7 @@ class _PublicWishesViewState extends State<_PublicWishesView> {
 
   List<WishModel> _wishes = [];
   bool _isLoading = true;
+  bool _hasError = false;
 
   @override
   void initState() {
@@ -323,8 +324,10 @@ class _PublicWishesViewState extends State<_PublicWishesView> {
   Future<void> _refresh({bool showError = true}) async {
     try {
       await _repo.refreshPublicWishes(context.read<AuthModel>().username);
+      if (mounted) setState(() => _hasError = false);
     } catch (e) {
       debugPrint('刷新广场失败: $e');
+      if (mounted) setState(() => _hasError = true);
       if (mounted && showError) context.showSnack('广场刷新失败,先看看本地缓存吧~');
     } finally {
       await _loadLocal();
@@ -339,18 +342,65 @@ class _PublicWishesViewState extends State<_PublicWishesView> {
 
     return RefreshIndicator(
       onRefresh: _refresh,
-      child: _wishes.isEmpty ? _buildEmptyState() : _buildWishList(),
+      child: _wishes.isNotEmpty
+          ? _buildWishList()
+          : _hasError
+              ? _buildErrorState()
+              : _buildEmptyState(),
     );
   }
 
   Widget _buildEmptyState() {
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
-      children: const [
-        SizedBox(height: 100),
+      children: [
+        const SizedBox(height: 60),
         Center(
+          child: Image.asset(
+            'assets/images/clover.png',
+            width: 120,
+            height: 120,
+            fit: BoxFit.contain,
+            errorBuilder: (_, __, ___) => const Icon(
+              Icons.favorite_border,
+              size: 72,
+              color: Colors.pinkAccent,
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        const Center(
           child: Text(
             '广场还空空的, 下拉刷新看看吧~',
+            style: TextStyle(color: Colors.grey),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildErrorState() {
+    return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      children: [
+        const SizedBox(height: 60),
+        Center(
+          child: Image.asset(
+            'assets/images/LuckyMiao.png',
+            width: 140,
+            height: 140,
+            fit: BoxFit.contain,
+            errorBuilder: (_, __, ___) => const Icon(
+              Icons.cloud_off,
+              size: 72,
+              color: Colors.grey,
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        const Center(
+          child: Text(
+            '广场暂时连不上, 下拉再试试~',
             style: TextStyle(color: Colors.grey),
           ),
         ),

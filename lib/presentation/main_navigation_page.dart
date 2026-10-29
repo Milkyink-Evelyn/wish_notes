@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:wish_notes/logic/auth_model.dart';
+import '../repositories/wish_repository.dart';
+import '../utils/sp_utils.dart';
 import '../utils/toast_utils.dart';
 import '../logic/wish_list_model.dart';
 import 'wish_form_page.dart';
@@ -17,12 +19,98 @@ class MainNavigationPage extends StatefulWidget {
 
 class _MainNavigationPageState extends State<MainNavigationPage> {
   int _currentIndex = 0;
+  late final AuthModel _auth;
+  bool _checkingOrphan = false;
 
   // 定义两个子页面列表
   final List<Widget> _pages = const [
     WishesPage(),
     ProfilePage(),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _auth = context.read<AuthModel>();
+    _auth.addListener(_onAuthChanged);
+
+    // 启动时检查一次旧版本遗留的无主心愿
+    WidgetsBinding.instance.addPostFrameCallback((_) => _checkOrphanWishes());
+  }
+
+  @override
+  void dispose() {
+    _auth.removeListener(_onAuthChanged);
+    super.dispose();
+  }
+
+  void _onAuthChanged() {
+    if (_auth.isLoggedIn) {
+      _checkOrphanWishes();
+    }
+  }
+
+  /// 旧版本可能留下没有作者的公开心愿, 第一次登录时问一下要不要归到当前账号
+  Future<void> _checkOrphanWishes() async {
+    if (_checkingOrphan) return;
+
+    final username = _auth.username;
+    if (username == null || username.isEmpty) return;
+    if (SPUtils.getString(SPKey.orphanOwnerChecked) == '1') return;
+
+    _checkingOrphan = true;
+    try {
+      // 等登录页返回动画结束, 避免对话框被一起 pop 掉
+      await Future.delayed(const Duration(milliseconds: 400));
+      if (!mounted) return;
+
+      final repo = WishRepository();
+      final count = await repo.countOrphanPublicWishes();
+      if (!mounted) return;
+
+      if (count == 0) {
+        await SPUtils.setString(SPKey.orphanOwnerChecked, '1');
+        return;
+      }
+
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('发现未归属的心愿'),
+          content: Text('本机有 $count 条旧版本的公开心愿没有作者, 没法自动判断属于哪个账号。\n\n要把它们归到当前账号 @$username 名下吗？'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('暂不处理'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('归到当前账号'),
+            ),
+          ],
+        ),
+      );
+
+      if (!mounted || _auth.username != username) return;
+
+      if (confirm != true) {
+        await SPUtils.setString(SPKey.orphanOwnerChecked, '1');
+        return;
+      }
+
+      final claimed = await repo.claimOrphanPublicWishes(username);
+      await SPUtils.setString(SPKey.orphanOwnerChecked, '1');
+      if (!mounted) return;
+
+      await context.read<WishListModel>().loadLocalData(username);
+      if (!mounted) return;
+      context.showSnack('已归属 $claimed 条心愿');
+    } catch (e) {
+      debugPrint('检查无主心愿失败: $e');
+    } finally {
+      _checkingOrphan = false;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -149,7 +237,7 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
 
   Widget _buildNavItem(int index, String label, String imageName) {
     final isSelected = _currentIndex == index;
-    final color = isSelected ? Colors.limeAccent : Colors.white;
+    final color = isSelected ? const Color(0xFFFFE4F1) : Colors.white;
 
     return GestureDetector(
       onTap: () => setState(() => _currentIndex = index),
