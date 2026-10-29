@@ -9,7 +9,7 @@ class Http {
   late final Dio _dio;
   static Http? _instance;
 
-  /// 工厂构造函数，返回单例实例
+  /// 工厂构造函数,返回单例实例
   factory Http() => _getInstance();
 
   static Http _getInstance() {
@@ -24,15 +24,18 @@ class Http {
       // 添加拦截器
       _instance!._dio.interceptors.add(InterceptorsWrapper(
         onRequest: (options, handler) {
-          // 在每次请求前，自动从本地取出 Token 塞进 Heade
-          final token = SPUtils.getString(SPKey.token);
+          // 在每次请求前,自动从本地取出 Token 塞进 Header
+          // 公开接口可以跳过 Token, 避免本地残留的失效 Token 把匿名请求也挡掉
+          final token = options.extra['skipAuth'] == true
+              ? null
+              : SPUtils.getString(SPKey.token);
           if (token != null && token.isNotEmpty) {
             options.headers['Authorization'] = 'Bearer $token';
           }
           return handler.next(options);
         },
         onResponse: (response, handler) {
-          // 暂时不做任何处理，直接返回响应
+          // 暂时不做任何处理,直接返回响应
           return handler.next(response);
         },
         onError: (DioException e, handler) {
@@ -59,12 +62,19 @@ class Http {
     return _instance!;
   }
 
-  /// 私有构造函数，防止外部实例化
+  /// 私有构造函数,防止外部实例化
   Http._internal();
 
   /// 封装GET请求
-  Future<Response<T>> get<T>(String path, {Map<String, dynamic>? queryParameters}) async {
-    return await _dio.get<T>(path, queryParameters: queryParameters);
+  Future<Response<T>> get<T>(String path, {
+    Map<String, dynamic>? queryParameters,
+    bool skipAuth = false,
+  }) async {
+    return await _dio.get<T>(
+      path,
+      queryParameters: queryParameters,
+      options: Options(extra: {'skipAuth': skipAuth}),
+    );
   }
 
   /// 封装POST请求

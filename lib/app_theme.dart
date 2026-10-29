@@ -3,13 +3,20 @@ import 'package:flutter/material.dart';
 class AppTheme {
   /// 设置页、登录页共用的背景色
   static const Color mintBackground = Color.fromARGB(255, 241, 242, 224);
-  /// 设置页、登录页 AppBar 的颜色（比背景深一档）
+  /// 设置页、登录页 AppBar 的颜色(比背景深一档)
   static const Color mintAppBar = Color.fromARGB(142, 219, 223, 178);
   
-  /// 全局统一的主文字颜色（深蓝灰）
+  /// 全局统一的主文字颜色(深蓝灰)
   static const Color textColor = Color(0xFF546E7A);
-  /// 全局统一的辅助文字颜色（浅蓝灰）
+  /// 全局统一的辅助文字颜色(浅蓝灰)
   static const Color subTextColor = Color(0xFF90A4AE);
+
+  /// 卡片背景: 主题色浅浅混一层白, 再留一点透明
+  static Color cardColor(BuildContext context) {
+    final primary = Theme.of(context).colorScheme.primary;
+    return Color.alphaBlend(primary.withValues(alpha: 0.12), Colors.white)
+        .withValues(alpha: 0.88);
+  }
 
   static ThemeData get light => ThemeData(
         scaffoldBackgroundColor: Colors.transparent,

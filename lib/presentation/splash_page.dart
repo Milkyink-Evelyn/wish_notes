@@ -61,7 +61,7 @@ class _SplashPageState extends State<SplashPage>
     ];
 
     try {
-      // 把加载数据、预缓存图片、延迟分开处理，避免并发时的异常
+      // 把加载数据、预缓存图片、延迟分开处理,避免并发时的异常
       // 1. 开启 1.5 秒倒计时
       final delayFuture = Future.delayed(const Duration(milliseconds: 1500));
 

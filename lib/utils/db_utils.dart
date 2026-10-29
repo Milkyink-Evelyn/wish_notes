@@ -27,6 +27,8 @@ abstract class WishTable {
   static const String colComments = 'comments_json';
   /// 评论作者用户名
   static const String colOwnerUsername = 'owner_username';
+  /// 广场缓存标记: 0自己的数据, 1缓存别人的公开心愿
+  static const String colIsPublicCache = 'is_public_cache';
 }
 
 /// DB工具类
@@ -41,7 +43,7 @@ class DBUtils {
 
     _db = await openDatabase(
       path,
-      version: 2,
+      version: 3,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE ${WishTable.name} (
@@ -55,7 +57,8 @@ class DBUtils {
             ${WishTable.colIsDeleted} INTEGER NOT NULL DEFAULT 0,
             ${WishTable.colCategory} TEXT,
             ${WishTable.colComments} TEXT,
-            ${WishTable.colOwnerUsername} TEXT
+            ${WishTable.colOwnerUsername} TEXT,
+            ${WishTable.colIsPublicCache} INTEGER NOT NULL DEFAULT 0
           )
         ''');
       },
@@ -63,6 +66,11 @@ class DBUtils {
         if (oldVersion < 2) {
           await db.execute(
             'ALTER TABLE ${WishTable.name} ADD COLUMN ${WishTable.colOwnerUsername} TEXT'
+          );
+        }
+        if (oldVersion < 3) {
+          await db.execute(
+            'ALTER TABLE ${WishTable.name} ADD COLUMN ${WishTable.colIsPublicCache} INTEGER NOT NULL DEFAULT 0'
           );
         }
       },

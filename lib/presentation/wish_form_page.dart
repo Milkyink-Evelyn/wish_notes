@@ -6,7 +6,8 @@ import '../models/wish_model.dart';
 import '../repositories/wish_repository.dart';
 
 class WishFormPage extends StatefulWidget {
-  const WishFormPage({super.key});
+  final WishModel? initialWish; // 传入时为编辑模式
+  const WishFormPage({super.key, this.initialWish});
 
   @override
   State<WishFormPage> createState() => _WishFormPageState();
@@ -20,6 +21,21 @@ class _WishFormPageState extends State<WishFormPage> {
   StorageMode _selectedMode = StorageMode.smart;
 
   bool _isSubmitting = false; // 防止重复点击保存
+
+  bool get _isEditing => widget.initialWish != null;
+
+  @override
+  void initState() {
+    super.initState();
+
+    final wish = widget.initialWish;
+    if (wish != null) {
+      _contentController.text = wish.content;
+      _selectedCategory = wish.category;
+      _selectedVisibility = wish.visibility;
+      _selectedMode = wish.storageMode;
+    }
+  }
 
   @override
   void dispose() {
@@ -39,6 +55,23 @@ class _WishFormPageState extends State<WishFormPage> {
     setState(() => _isSubmitting = true);
 
     try {
+      final repo = WishRepository();
+
+      if (_isEditing) {
+        final updated = widget.initialWish!.copyWith(
+          content: content,
+          visibility: _selectedVisibility,
+          category: _selectedCategory,
+          storageMode: _selectedMode,
+        );
+        await repo.updateWishLocal(updated);
+
+        if (!mounted) return;
+        debugPrint('--- 准备返回编辑结果 ---');
+        Navigator.pop(context, updated);
+        return;
+      }
+
       final newWish = WishModel(
         content: content,
         visibility: _selectedVisibility,
@@ -50,7 +83,6 @@ class _WishFormPageState extends State<WishFormPage> {
         ownerUsername: currentUsername,
       );
 
-      final repo = WishRepository();
       await repo.insertWish(newWish);
 
       if (!mounted) return;
@@ -72,7 +104,7 @@ class _WishFormPageState extends State<WishFormPage> {
     return Scaffold(
       backgroundColor: const Color.fromARGB(189, 255, 255, 255),
       appBar: AppBar(
-        title: const Text('留下你的心愿吧~'),
+        title: Text(_isEditing ? '编辑心愿' : '留下你的心愿吧~'),
       ),
       body: ListView(
         padding: const EdgeInsets.all(20),
@@ -110,7 +142,10 @@ class _WishFormPageState extends State<WishFormPage> {
           const SizedBox(height: 24),
 
           // 3. 可见性与存储模式(公开的只能是智能/云端)
-          const Text('存储与可见性', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          Text(
+            _isEditing ? '可见性' : '存储与可见性',
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+          ),
           const SizedBox(height: 8),
 
           // 可见性选择
@@ -126,7 +161,7 @@ class _WishFormPageState extends State<WishFormPage> {
                 selected: {_selectedVisibility},
                 onSelectionChanged: (Set<WishVisibility> newSelection) {
                   if (newSelection.first == WishVisibility.public && !isLoggedIn) {
-                    context.showSnack('未登录状态下无法发布公开心愿，请先去“我的”页面登录吧~');
+                    context.showSnack('未登录状态下无法发布公开心愿,请先去“我的”页面登录吧~');
                     return;
                   }
 
@@ -141,33 +176,34 @@ class _WishFormPageState extends State<WishFormPage> {
             ],
           ),
 
-          // 存储模式选择
-          Row(
-            children: [
-              const Text('存储模式：'),
-              const SizedBox(width: 16),
-              Expanded(
-                child: SegmentedButton<StorageMode>(
-                  segments: [
-                    const ButtonSegment(value: StorageMode.local, label: Text('本地')),
-                    const ButtonSegment(value: StorageMode.cloud, label: Text('云端')),
-                    const ButtonSegment(value: StorageMode.smart, label: Text('智能')),
-                  ],
-                  selected: {_selectedMode},
-                  onSelectionChanged: (Set<StorageMode> newSelection) {
-                    setState(() {
-                      _selectedMode = newSelection.first;
-                      // 规则：纯本地不支持公开
-                      if (_selectedMode == StorageMode.local && _selectedVisibility == WishVisibility.public) {
-                        _selectedVisibility = WishVisibility.private;
-                        context.showSnack('公开心愿不能纯本地存储，已自动切为私有');
-                      }
-                    });
-                  },
+          // 存储模式选择(编辑时锁定, 避免把已有云端数据切成纯本地)
+          if (!_isEditing)
+            Row(
+              children: [
+                const Text('存储模式：'),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: SegmentedButton<StorageMode>(
+                    segments: [
+                      const ButtonSegment(value: StorageMode.local, label: Text('本地')),
+                      const ButtonSegment(value: StorageMode.cloud, label: Text('云端')),
+                      const ButtonSegment(value: StorageMode.smart, label: Text('智能')),
+                    ],
+                    selected: {_selectedMode},
+                    onSelectionChanged: (Set<StorageMode> newSelection) {
+                      setState(() {
+                        _selectedMode = newSelection.first;
+                        // 规则：纯本地不支持公开
+                        if (_selectedMode == StorageMode.local && _selectedVisibility == WishVisibility.public) {
+                          _selectedVisibility = WishVisibility.private;
+                          context.showSnack('公开心愿不能纯本地存储,已自动切为私有');
+                        }
+                      });
+                    },
+                  ),
                 ),
-              ),
-            ],
-          ),
+              ],
+            ),
           Container(
             decoration: BoxDecoration(
               color: const Color.fromARGB(157, 193, 255, 241),
@@ -178,7 +214,7 @@ class _WishFormPageState extends State<WishFormPage> {
                 onPressed: _isSubmitting ? null : _saveWish,
                 child: _isSubmitting
                     ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2,),)
-                    : const Text('保存', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    : Text(_isEditing ? '保存修改' : '保存', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
               )
           )
         ],

@@ -9,7 +9,7 @@ class WishRepository {
   /// 获取本地所有心愿(不包含软删除)
   Future<List<WishModel>> getMyWishes({String? ownerUsername}) async {
     final db = DBUtils.db;
-    String where = '${WishTable.colIsDeleted} = 0';
+    String where = '${WishTable.colIsDeleted} = 0 AND ${WishTable.colIsPublicCache} = 0';
     List<dynamic> whereArgs = [];
 
     if (ownerUsername != null) {
@@ -40,6 +40,68 @@ class WishRepository {
     return maps.map((e) => WishModel.fromMap(e)).toList();
   }
 
+  /// 从云端拉取广场公开心愿,覆盖本地缓存
+  Future<void> refreshPublicWishes(String? currentUsername) async {
+    final db = DBUtils.db;
+    final cloudList = await _api.fetchPublicWishes();
+    final Set<int> cloudServerIds = {};
+
+    for (var json in cloudList) {
+      final cloudWish = WishModel.fromJson(json, StorageMode.smart);
+      final serverId = cloudWish.serverId;
+      if (serverId == null) continue;
+      cloudServerIds.add(serverId);
+
+      final isMine = currentUsername != null && cloudWish.ownerUsername == currentUsername;
+
+      final localMaps = await db.query(
+        WishTable.name,
+        where: '${WishTable.colServerId} = ?',
+        whereArgs: [serverId],
+      );
+
+      if (localMaps.isNotEmpty) {
+        final localWish = WishModel.fromMap(localMaps.first);
+
+        if (localWish.isDeleted) continue; // 本地有墓碑, 交给同步流程处理
+        if (!localWish.isPublicCache) continue; // 自己或其他账号的真实数据, 广场刷新不动
+
+        final updateMap = cloudWish.toMap();
+        updateMap[WishTable.colLocalId] = localWish.localId;
+        updateMap[WishTable.colCategory] = localWish.category.name;
+        updateMap[WishTable.colIsPublicCache] = isMine ? 0 : 1;
+        await db.update(
+          WishTable.name,
+          updateMap,
+          where: '${WishTable.colLocalId} = ?',
+          whereArgs: [localWish.localId],
+        );
+      } else { // 本地没有, 插入一份缓存
+        final insertMap = cloudWish.toMap();
+        insertMap.remove(WishTable.colLocalId);
+        insertMap[WishTable.colIsPublicCache] = isMine ? 0 : 1;
+        await db.insert(WishTable.name, insertMap);
+      }
+    }
+
+    // 清理云端已经看不到的广场缓存(只删缓存, 不动自己的数据)
+    final cachedMaps = await db.query(
+      WishTable.name,
+      where: '${WishTable.colIsPublicCache} = 1',
+    );
+
+    for (var map in cachedMaps) {
+      final localWish = WishModel.fromMap(map);
+      if (localWish.serverId != null && !cloudServerIds.contains(localWish.serverId)) {
+        await db.delete(
+          WishTable.name,
+          where: '${WishTable.colLocalId} = ?',
+          whereArgs: [localWish.localId],
+        );
+      }
+    }
+  }
+
   /// 保存心愿(本地)
   Future<int> insertWish(WishModel wish) async {
     final db = DBUtils.db;
@@ -62,7 +124,7 @@ class WishRepository {
     );
   }
 
-  /// 从云端拉取我的心愿，并合并到本地(智能模式同步数据)
+  /// 从云端拉取我的心愿,并合并到本地(智能模式同步数据)
   Future<void> pullMyWishes(String currentUsername) async {
     final db = DBUtils.db;
     final cloudList = await _api.fetchMyWishes();
@@ -98,7 +160,7 @@ class WishRepository {
             whereArgs: [localWish.localId],
           );
         }// 私有心愿智能存储同步以本地为主, 不作修改
-      } else {  // 本地数据缺失/丢失，用云端数据恢复
+      } else {  // 本地数据缺失/丢失,用云端数据恢复
         final insertMap = cloudWish.toMap();
         insertMap.remove(WishTable.colLocalId);
         await db.insert(WishTable.name, insertMap);
@@ -232,19 +294,16 @@ class WishRepository {
     for (var map in maps) {
       final localWish = WishModel.fromMap(map);
       
-      // 私有心愿以本地为准，所以推送覆盖云端
-      if (localWish.visibility == WishVisibility.private) {
-        try {
-          await _api.updateWish(
-            localWish.serverId!, 
-            localWish.content, 
-            localWish.visibility.value
-          );
-        } catch (e) {
-          debugPrint('推送修改心愿失败 localId=${localWish.localId}: $e');
-        }
+      // 公开、私有都推送: 公开心愿需要登录作者才能修改, 改完要覆盖云端
+      try {
+        await _api.updateWish(
+          localWish.serverId!, 
+          localWish.content, 
+          localWish.visibility.value
+        );
+      } catch (e) {
+        debugPrint('推送修改心愿失败 localId=${localWish.localId}: $e');
       }
-      // 公开心愿未登录不可更改，不作操作。
     }
   }
 
@@ -268,7 +327,7 @@ class WishRepository {
       await pushUpdatedWishes(currentUsername);
       await pushUpdatedStatus(currentUsername);
       
-      // 4. 拉取合并(最后拉取，获取云端最新数据)
+      // 4. 拉取合并(最后拉取,获取云端最新数据)
       await pullMyWishes(currentUsername);
       
       debugPrint('--- 同步完成 ---');
@@ -278,7 +337,7 @@ class WishRepository {
     }
   }
 
-  /// 更新本地心愿数据（用于切换状态）
+  /// 更新本地心愿数据(用于切换状态)
   Future<void> updateWishLocal(WishModel wish) async {
     final db = DBUtils.db;
     await db.update(
@@ -289,15 +348,38 @@ class WishRepository {
     );
   }
 
+  /// 获取本地真实数据里出现过的归属者(不含广场缓存), 游客用空字符串表示
+  Future<List<String>> getLocalOwners() async {
+    final db = DBUtils.db;
+    final maps = await db.query(
+      WishTable.name,
+      columns: [WishTable.colOwnerUsername],
+      where: '${WishTable.colIsPublicCache} = 0',
+      groupBy: WishTable.colOwnerUsername,
+      orderBy: WishTable.colOwnerUsername,
+    );
+
+    return maps.map((e) => e[WishTable.colOwnerUsername] as String? ?? '').toList();
+  }
+
   /// 直接清空所有本地心愿(物理删除)
   Future<void> clearAllLocalWishes() async {
     final db = DBUtils.db;
     await db.delete(WishTable.name);
   }
 
-  /// 指定清理某个用户的本地心愿(物理删除)
-  Future<void> clearLocalWishesByUsername(String username) async {
+  /// 指定清理某个用户或游客的本地心愿(物理删除)
+  Future<void> clearLocalWishesByUsername(String? username) async {
     final db = DBUtils.db;
+
+    if (username == null || username.isEmpty) {
+      await db.delete(
+        WishTable.name,
+        where: '${WishTable.colOwnerUsername} IS NULL',
+      );
+      return;
+    }
+
     await db.delete(
       WishTable.name,
       where: '${WishTable.colOwnerUsername} = ?',

@@ -17,7 +17,7 @@ enum StorageMode {
   static StorageMode fromString(String str) {
     return StorageMode.values.firstWhere(
       (e) => e.value == str, 
-      orElse: () => StorageMode.cloud, // 兜底，防止数据库脏数据
+      orElse: () => StorageMode.cloud, // 兜底,防止数据库脏数据
     );
   }
 }
@@ -36,7 +36,7 @@ enum WishVisibility {
   static WishVisibility fromString(String str) {
     return WishVisibility.values.firstWhere(
       (e) => e.value == str, 
-      orElse: () => WishVisibility.private, // 兜底，防止数据库脏数据
+      orElse: () => WishVisibility.private, // 兜底,防止数据库脏数据
     );
   }
 }
@@ -77,6 +77,7 @@ class WishModel {
   final WishCategory category;
   final List<CommentModel> comments;
   final String? ownerUsername;
+  final bool isPublicCache; // 是否广场缓存(别人的公开心愿)
 
   WishModel({
     this.localId,
@@ -90,9 +91,10 @@ class WishModel {
     this.category = WishCategory.other,
     this.comments = const [],
     this.ownerUsername,
+    this.isPublicCache = false,
   });
 
-  /// 将对象转成Map，以便存入数据库
+  /// 将对象转成Map,以便存入数据库
   Map<String, dynamic> toMap() {
     return {
       'local_id': localId,
@@ -106,10 +108,11 @@ class WishModel {
       'category': category.name,
       'comments_json': jsonEncode(comments.map((e) => e.toJson()).toList()),
       'owner_username': ownerUsername,
+      'is_public_cache': isPublicCache ? 1 : 0,
     };
   }
 
-  /// 从Map创建对象，以便从数据库读取
+  /// 从Map创建对象,以便从数据库读取
   factory WishModel.fromMap(Map<String, dynamic> map) {
 
     final commentsStr = map['comments_json'] as String?;
@@ -129,6 +132,7 @@ class WishModel {
       category: WishCategory.fromString(map['category'] as String?),
       comments: commentList,
       ownerUsername: map['owner_username'] as String?,
+      isPublicCache: (map['is_public_cache'] as int? ?? 0) == 1,
     );
   }
 
@@ -163,6 +167,7 @@ class WishModel {
     WishCategory? category,
     List<CommentModel>? comments,
     String? ownerUsername,
+    bool? isPublicCache,
   }) {
     return WishModel(
       localId: localId ?? this.localId,
@@ -176,6 +181,7 @@ class WishModel {
       category: category ?? this.category,
       comments: comments ?? this.comments,
       ownerUsername: ownerUsername ?? this.ownerUsername,
+      isPublicCache: isPublicCache ?? this.isPublicCache,
     );
   }
 }
@@ -187,6 +193,7 @@ class CommentModel {
   final String username;
   final String nickname;
   final String createdAt; // 接口返回的是字符串日期
+  final int? userId;
 
   CommentModel({
     required this.id,
@@ -194,6 +201,7 @@ class CommentModel {
     required this.username,
     required this.nickname,
     required this.createdAt,
+    this.userId,
   });
 
   factory CommentModel.fromJson(Map<String, dynamic> json) {
@@ -203,6 +211,7 @@ class CommentModel {
       username: json['username'] ?? '',
       nickname: json['nickname'] ?? '',
       createdAt: json['createdAt'] ?? '',
+      userId: json['userId'] as int?,
     );
   }
 
@@ -213,6 +222,7 @@ class CommentModel {
       'username': username,
       'nickname': nickname,
       'createdAt': createdAt,
+      'userId': userId,
     };
   }
 }

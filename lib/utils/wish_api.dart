@@ -17,10 +17,10 @@ class WishApi {
     }
   }
 
-  /// 获取广场的公开心愿(云端)
+  /// 获取广场的公开心愿(云端, 游客也能访问)
   Future<List<Map<String, dynamic>>> fetchPublicWishes() async {
     try {
-      final response = await Http().get('/wishes');
+      final response = await Http().get('/wishes', skipAuth: true);
       final data = response.data;
 
       if (data['success'] == true) {
@@ -30,6 +30,54 @@ class WishApi {
       }
     } catch (e) {
       rethrow; // 把错误抛给 Repository 处理
+    }
+  }
+
+  /// 获取单条心愿详情(含评论)
+  Future<Map<String, dynamic>> fetchWishDetail(int serverId, {bool skipAuth = false}) async {
+    try {
+      final response = await Http().get('/wishes/$serverId', skipAuth: skipAuth);
+      final data = response.data;
+
+      if (data['success'] == true && data['data'] != null) {
+        return data['data'];
+      } else {
+        throw Exception(data['message'] ?? '获取心愿详情失败');
+      }
+    } catch (e) {
+      rethrow; // 把错误抛给 UI 层处理
+    }
+  }
+
+  /// 发表评论
+  Future<Map<String, dynamic>> addComment(int serverId, String content) async {
+    try {
+      final response = await Http().post('/wishes/$serverId/comments', data: {
+        'content': content,
+      });
+      final data = response.data;
+
+      if (data['success'] == true && data['data'] != null) {
+        return data['data'];
+      } else {
+        throw Exception(data['message'] ?? '发表评论失败');
+      }
+    } catch (e) {
+      rethrow; // 把错误抛给 UI 层处理
+    }
+  }
+
+  /// 删除评论
+  Future<void> deleteComment(int serverId, int commentId) async {
+    try {
+      final response = await Http().delete('/wishes/$serverId/comments/$commentId');
+      final data = response.data;
+
+      if (data['success'] != true) {
+        throw Exception(data['message'] ?? '删除评论失败');
+      }
+    } catch (e) {
+      rethrow; // 把错误抛给 UI 层处理
     }
   }
 

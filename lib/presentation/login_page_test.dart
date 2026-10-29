@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../app_theme.dart';
+import '../utils/sp_utils.dart';
 import '../utils/toast_utils.dart';
 import '../logic/auth_model.dart';
 import 'register_page_test.dart';
@@ -15,6 +17,19 @@ class _LoginPageState extends State<LoginPage> {
   final _formKey = GlobalKey<FormState>();
   final _userController = TextEditingController();
   final _passController = TextEditingController();
+
+  bool _rememberAccount = true;
+
+  @override
+  void initState() {
+    super.initState();
+
+    // 只记账号, 不碰密码
+    final saved = SPUtils.getString(SPKey.rememberedUsername);
+    if (saved != null && saved.isNotEmpty) {
+      _userController.text = saved;
+    }
+  }
 
   @override
   void dispose() {
@@ -41,7 +56,15 @@ class _LoginPageState extends State<LoginPage> {
 
     // 根据结果给反馈
     if (success) {
+      if (_rememberAccount) {
+        await SPUtils.setString(SPKey.rememberedUsername, _userController.text.trim());
+      } else {
+        await SPUtils.remove(SPKey.rememberedUsername);
+      }
+
+      if (!mounted) return;
       context.showSnack('登录成功！');
+      if (Navigator.canPop(context)) Navigator.pop(context);
     } else {
       context.showSnack(auth.errorMsg ?? '登录失败');
     }
@@ -54,8 +77,12 @@ class _LoginPageState extends State<LoginPage> {
     final isLoggedIn = context.watch<AuthModel>().isLoggedIn;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('测试真实登录')),
-      body: Padding(
+      backgroundColor: AppTheme.mintBackground,
+      appBar: AppBar(
+        title: const Text('登录'),
+        backgroundColor: AppTheme.mintAppBar,
+      ),
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(24.0),
         child: Form(
           key: _formKey,
@@ -89,7 +116,19 @@ class _LoginPageState extends State<LoginPage> {
                 ),
                 validator: (v) => (v == null || v.length < 6) ? '密码至少 6 位' : null,
               ),
-              const SizedBox(height: 24),
+
+              Row(
+                children: [
+                  Checkbox(
+                    value: _rememberAccount,
+                    onChanged: (value) {
+                      setState(() => _rememberAccount = value ?? false);
+                    },
+                  ),
+                  const Text('记住账号'),
+                ],
+              ),
+              const SizedBox(height: 8),
 
               SizedBox(
                 width: double.infinity,

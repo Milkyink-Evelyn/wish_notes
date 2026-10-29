@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../app_theme.dart';
 import '../utils/toast_utils.dart';
 import '../logic/auth_model.dart';
 
@@ -15,6 +16,10 @@ class _RegisterPageState extends State<RegisterPage> {
   final _userController = TextEditingController();
   final _passController = TextEditingController();
   final _nicknameController = TextEditingController();
+
+  // 用户名: 字母/数字/下划线; 密码: 6-20 位且不能有空格
+  final _usernameReg = RegExp(r'^[a-zA-Z0-9_]{3,50}$');
+  final _passwordReg = RegExp(r'^\S{6,20}$');
 
   @override
   void dispose() {
@@ -39,7 +44,7 @@ class _RegisterPageState extends State<RegisterPage> {
 
     if (success) {
       context.showSnack('注册成功！已自动登录');
-      Navigator.pop(context); // 注册成功，返回上一页（登录页）
+      Navigator.pop(context); // 注册成功,返回上一页(登录页)
     } else {
       context.showSnack(auth.errorMsg ?? '注册失败');
     }
@@ -50,24 +55,31 @@ class _RegisterPageState extends State<RegisterPage> {
     final isLoading = context.watch<AuthModel>().isLoading;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('注册新账号')),
-      body: Padding(
+      backgroundColor: AppTheme.mintBackground,
+      appBar: AppBar(
+        title: const Text('注册新账号'),
+        backgroundColor: AppTheme.mintAppBar,
+      ),
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(24.0),
         child: Form(
           key: _formKey,
+          autovalidateMode: AutovalidateMode.onUserInteraction,
           child: Column(
             children: [
               // 根据接口文档：用户名 3-50 字符
               TextFormField(
                 controller: _userController,
+                autovalidateMode: AutovalidateMode.onUserInteraction,
                 decoration: const InputDecoration(
-                  labelText: '用户名 (3-50字符)',
+                  labelText: '用户名 (3-50位字母/数字/下划线)',
                   border: OutlineInputBorder(),
                 ),
                 validator: (v) {
                   final text = v?.trim() ?? '';
-                  if (text.length < 3) return '用户名至少 3 个字符';
-                  if (text.length > 50) return '用户名不能超过 50 个字符';
+                  if (!_usernameReg.hasMatch(text)) {
+                    return '用户名只能包含字母、数字、下划线, 长度 3-50';
+                  }
                   return null;
                 },
               ),
@@ -76,10 +88,16 @@ class _RegisterPageState extends State<RegisterPage> {
               // 昵称是可选的
               TextFormField(
                 controller: _nicknameController,
+                autovalidateMode: AutovalidateMode.onUserInteraction,
                 decoration: const InputDecoration(
                   labelText: '昵称 (可选)',
                   border: OutlineInputBorder(),
                 ),
+                validator: (v) {
+                  final text = v?.trim() ?? '';
+                  if (text.length > 20) return '昵称不能超过 20 个字符';
+                  return null;
+                },
               ),
               const SizedBox(height: 16),
 
@@ -87,11 +105,17 @@ class _RegisterPageState extends State<RegisterPage> {
               TextFormField(
                 controller: _passController,
                 obscureText: true,
+                autovalidateMode: AutovalidateMode.onUserInteraction,
                 decoration: const InputDecoration(
-                  labelText: '密码 (至少6位)',
+                  labelText: '密码 (6-20位, 不含空格)',
                   border: OutlineInputBorder(),
                 ),
-                validator: (v) => (v == null || v.length < 6) ? '密码不能少于 6 位' : null,
+                validator: (v) {
+                  if (!_passwordReg.hasMatch(v ?? '')) {
+                    return '密码需为 6-20 位, 且不能包含空格';
+                  }
+                  return null;
+                },
               ),
               const SizedBox(height: 24),
 

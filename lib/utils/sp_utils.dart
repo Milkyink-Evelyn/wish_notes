@@ -3,7 +3,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 ///用枚举同一管理Key,防止手误
 enum SPKey {
   token('auth_token'),
-  userInfo('user_info');
+  userInfo('user_info'),
+  rememberedUsername('remembered_username');
 
   final String key;
   const SPKey(this.key);
@@ -13,7 +14,7 @@ enum SPKey {
 
 /// SP工具类
 class SPUtils {
-  /// 私有构造函数，防止外部实例化
+  /// 私有构造函数,防止外部实例化
   SPUtils._();
 
   static late final SharedPreferencesWithCache _prefs;

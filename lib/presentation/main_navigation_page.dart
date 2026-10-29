@@ -30,7 +30,7 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
     final scaffold = Scaffold(
       // 页面内容能够延伸到最底部
       extendBody: true,
-      backgroundColor: Colors.transparent, // 必须透明，让底层的背景图露出来
+      backgroundColor: Colors.transparent, // 必须透明,让底层的背景图露出来
       body: Stack(
         children: [
           
@@ -52,7 +52,7 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
         ],
       ),
       bottomNavigationBar: SizedBox(
-        // 导航栏总高度为 110，包含安全区域的高度
+        // 导航栏总高度为 110,包含安全区域的高度
         height: 110,
         child: Stack(
           alignment: Alignment.bottomCenter,
@@ -68,7 +68,7 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
                 fit: BoxFit.cover,
                 height: 110,
                 errorBuilder: (context, error, stackTrace) {
-                  // 如果图片加载失败，返回一个白色的容器
+                  // 如果图片加载失败,返回一个白色的容器
                   return Container(
                     height: 110,
                     color: Colors.white,
@@ -130,7 +130,7 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
       ),
     );
 
-    // 接收启动页传过来的 playFadeIn，执行 800ms 整体淡入
+    // 接收启动页传过来的 playFadeIn,执行 800ms 整体淡入
     if (widget.playFadeIn) {
       return TweenAnimationBuilder<double>(
         tween: Tween(begin: 0.0, end: 1.0),
