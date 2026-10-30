@@ -104,6 +104,7 @@ class AppTheme {
       );
 }
 
+/// Android 上使用淡入切换, 和 App 整体的柔和风格保持一致
 class FadePageTransitionsBuilder extends PageTransitionsBuilder {
   const FadePageTransitionsBuilder();
 

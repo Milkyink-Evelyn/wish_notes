@@ -5,10 +5,22 @@ import '../logic/auth_model.dart';
 import '../logic/wish_list_model.dart';
 import '../models/wish_model.dart';
 import '../repositories/wish_repository.dart';
+import '../utils/dialog_utils.dart';
 import '../utils/toast_utils.dart';
 import '../widgets/custom_popup_menu.dart';
+import '../widgets/status_filter.dart';
 import '../widgets/wish_card.dart';
 import 'wish_detail_page.dart';
+
+/// 心愿广场排序方式
+enum _PublicSortType {
+  time('按时间'),
+  comments('按评论数');
+
+  final String label;
+
+  const _PublicSortType(this.label);
+}
 
 class WishesPage extends StatelessWidget {
   const WishesPage({super.key});
@@ -61,12 +73,16 @@ class _MyWishesView extends StatelessWidget {
 
         return Column(
           children: [
-            // 1. 归属者下拉框(仅在未登录且本地有数据时显示)
+            // 1. 归属者下拉框(仅在未登录且本地有多个来源时显示)
             _buildOwnerFilter(context, model, currentUsername),
             
-            // 2. 分类
+            // 2. 分类筛选
             _buildCategoryFilter(model),
+
+            // 3. 状态筛选
+            _buildStatusFilter(model),
             
+            // 4. 列表或空状态
             Expanded(
               child: model.displayWishes.isEmpty
                   ? _buildEmptyState(model, currentUsername)
@@ -124,9 +140,20 @@ class _MyWishesView extends StatelessWidget {
     );
   }
 
-  // 空状态视图
+  /// 顶部状态筛选栏
+  Widget _buildStatusFilter(WishListModel model) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      child: WishStatusFilter(
+        selectedStatus: model.selectedStatus,
+        onChanged: model.setStatus,
+      ),
+    );
+  }
+
+  // 空状态视图: 区分"筛选没结果"和"一条心愿都没有"
   Widget _buildEmptyState(WishListModel model, String? currentUsername) {
-    final isFiltering = model.selectedCategory != null;
+    final isFiltering = model.selectedCategory != null || model.selectedStatus != null;
     return RefreshIndicator(
       onRefresh: () => model.syncAndRefresh(currentUsername),
       child: ListView(
@@ -136,7 +163,7 @@ class _MyWishesView extends StatelessWidget {
           Center(
             child: Text(
               isFiltering 
-                  ? '当前分类下还没有心愿哦~' 
+                  ? '当前筛选条件下还没有心愿哦~' 
                   : '还没有心愿哦,点击下方 + 号留下你的心愿吧~!',
               style: const TextStyle(color: Colors.grey),
             ),
@@ -169,36 +196,33 @@ class _MyWishesView extends StatelessWidget {
               );
               if (context.mounted) model.loadLocalData(currentUsername);
             },
+            // 卡片菜单里直接切换状态
             onChangeStatus: () async {
               final repo = WishRepository();
               final nextStatus = wish.status == 'REALIZED' ? 'UNREALIZED' : 'REALIZED';
               final updated = wish.copyWith(status: nextStatus);
               await repo.updateWishLocal(updated);
-              if (context.mounted) model.loadLocalData(currentUsername);
+              if (context.mounted) {
+                context.showSnack(nextStatus == 'REALIZED' ? '心愿实现啦~' : '已标记为未实现');
+                model.loadLocalData(currentUsername);
+              }
             },
+            // 删除前先确认, 本地走墓碑删除
             onDelete: () async {
-              final confirm = await showDialog<bool>(
-                context: context,
-                builder: (ctx) => AlertDialog(
-                  title: const Text('删除心愿'),
-                  content: const Text('确定要删除这个心愿吗？'),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(ctx, false), 
-                      child: const Text('取消')
-                    ),
-                    TextButton(
-                      onPressed: () => Navigator.pop(ctx, true), 
-                      child: const Text('删除', style: TextStyle(color: Colors.red))
-                    ),
-                  ],
-                ),
+              final confirm = await showConfirmDialog(
+                context,
+                title: '删除心愿',
+                content: '确定要删除这个心愿吗？',
+                confirmText: '删除',
               );
-              
+
               if (confirm == true) {
                 final repo = WishRepository();
                 await repo.softDeleteWish(wish.localId!);
-                if (context.mounted) model.loadLocalData(currentUsername);
+                if (context.mounted) {
+                  context.showSnack('心愿已删除');
+                  model.loadLocalData(currentUsername);
+                }
               }
             },
           );
@@ -291,6 +315,8 @@ class _PublicWishesViewState extends State<_PublicWishesView> {
   List<WishModel> _wishes = [];
   bool _isLoading = true;
   bool _hasError = false;
+  String? _selectedStatus;
+  _PublicSortType _sortType = _PublicSortType.time;
 
   @override
   void initState() {
@@ -334,23 +360,105 @@ class _PublicWishesViewState extends State<_PublicWishesView> {
     }
   }
 
+  /// 先按状态过滤, 再按时间或评论数排序
+  List<WishModel> get _displayWishes {
+    final list = _wishes.where((w) {
+      return _selectedStatus == null || w.status == _selectedStatus;
+    }).toList();
+
+    list.sort((a, b) {
+      if (_sortType == _PublicSortType.comments) {
+        final byComments = b.comments.length.compareTo(a.comments.length);
+        if (byComments != 0) return byComments;
+      }
+      // 时间排序和评论数相同的兜底都按创建时间倒序
+      return b.createdAt.compareTo(a.createdAt);
+    });
+    return list;
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading && _wishes.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
 
-    return RefreshIndicator(
-      onRefresh: _refresh,
-      child: _wishes.isNotEmpty
-          ? _buildWishList()
-          : _hasError
-              ? _buildErrorState()
-              : _buildEmptyState(),
+    return Column(
+      children: [
+        _buildFilterBar(),
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: _refresh,
+            child: _buildContent(),
+          ),
+        ),
+      ],
     );
   }
 
-  Widget _buildEmptyState() {
+  /// 广场顶部筛选栏: 左边状态, 右边排序
+  Widget _buildFilterBar() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      child: Row(
+        children: [
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: WishStatusFilter(
+                selectedStatus: _selectedStatus,
+                onChanged: (status) => setState(() => _selectedStatus = status),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          CustomPopupMenu<_PublicSortType>(
+            items: _PublicSortType.values.map((type) {
+              return PopupMenuItemData(
+                value: type,
+                label: type.label,
+                textColor: type == _sortType ? Colors.pinkAccent : null,
+              );
+            }).toList(),
+            onSelected: (type) => setState(() => _sortType = type),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: AppTheme.cardColor(context),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.grey.shade200),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.sort, size: 16, color: Colors.grey),
+                  const SizedBox(width: 4),
+                  Text(
+                    _sortType.label,
+                    style: const TextStyle(color: Colors.black87, fontSize: 13),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 有数据就展示列表, 没数据时区分"筛选为空"和"真的没有公开心愿"
+  Widget _buildContent() {
+    final displayWishes = _displayWishes;
+    if (displayWishes.isNotEmpty) {
+      return _buildWishList(displayWishes);
+    }
+    if (_wishes.isEmpty) {
+      return _hasError ? _buildErrorState() : _buildEmptyState(false);
+    }
+    return _buildEmptyState(true);
+  }
+
+  Widget _buildEmptyState(bool isFiltering) {
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
       children: [
@@ -369,10 +477,10 @@ class _PublicWishesViewState extends State<_PublicWishesView> {
           ),
         ),
         const SizedBox(height: 12),
-        const Center(
+        Center(
           child: Text(
-            '广场还空空的, 下拉刷新看看吧~',
-            style: TextStyle(color: Colors.grey),
+            isFiltering ? '当前筛选条件下还没有公开心愿哦~' : '广场还空空的, 下拉刷新看看吧~',
+            style: const TextStyle(color: Colors.grey),
           ),
         ),
       ],
@@ -408,17 +516,17 @@ class _PublicWishesViewState extends State<_PublicWishesView> {
     );
   }
 
-  Widget _buildWishList() {
+  Widget _buildWishList(List<WishModel> wishes) {
     return ListView.builder(
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 120),
-      itemCount: _wishes.length + 1,
+      itemCount: wishes.length + 1,
       itemBuilder: (context, index) {
-        if (index == _wishes.length) {
+        if (index == wishes.length) {
           return const _ListFooter();
         }
 
-        final wish = _wishes[index];
+        final wish = wishes[index];
         return WishCard(
           wish: wish,
           showMenu: false,

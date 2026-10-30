@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../app_theme.dart';
 import '../logic/auth_model.dart';
 import '../logic/wish_list_model.dart';
 import '../repositories/wish_repository.dart';
+import '../utils/dialog_utils.dart';
 import '../utils/toast_utils.dart';
-import 'login_page_test.dart';
+import '../widgets/app_card.dart';
+import 'login_page.dart';
 
 class ProfilePage extends StatelessWidget {
   const ProfilePage({super.key});
@@ -42,19 +43,8 @@ class ProfilePage extends StatelessWidget {
         ? '@${auth.username}'
         : '登录后可发布公开心愿, 多端同步';
 
-    return Container(
+    return AppCard(
       padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: AppTheme.cardColor(context),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
       child: Row(
         children: [
           CircleAvatar(
@@ -96,19 +86,9 @@ class ProfilePage extends StatelessWidget {
     );
   }
 
+  /// 本地数据管理入口, 只清本机, 不动云端
   Widget _buildDataCard(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppTheme.cardColor(context),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
+    return AppCard(
       child: Column(
         children: [
           ListTile(
@@ -152,6 +132,7 @@ class ProfilePage extends StatelessWidget {
     );
   }
 
+  /// 登录页返回后按当前账号重新加载列表
   Future<void> _goLogin(BuildContext context) async {
     await Navigator.push(
       context,
@@ -163,6 +144,7 @@ class ProfilePage extends StatelessWidget {
     await context.read<WishListModel>().loadLocalData(username);
   }
 
+  /// 先列出本机出现过的归属者, 再选一个清理
   Future<void> _clearByUser(BuildContext context) async {
     final owners = await WishRepository().getLocalOwners();
     if (!context.mounted) return;
@@ -206,12 +188,14 @@ class ProfilePage extends StatelessWidget {
     await _clearOneUser(context, selected);
   }
 
+  /// 只删本机数据, 云端数据保持不动
   Future<void> _clearOneUser(BuildContext context, String owner) async {
     final name = owner.isEmpty ? '本地游客' : owner;
-    final confirm = await _confirm(
+    final confirm = await showConfirmDialog(
       context,
       title: '清理本地数据',
       content: '确定删除“$name”在本机的所有心愿吗？云端数据不会受影响。',
+      confirmText: '清理',
     );
     if (confirm != true || !context.mounted) return;
 
@@ -222,11 +206,13 @@ class ProfilePage extends StatelessWidget {
     if (context.mounted) context.showSnack('$name 的本地数据已清理');
   }
 
+  /// 清理全部本地数据, 这个操作不可恢复
   Future<void> _clearAllData(BuildContext context) async {
-    final confirm = await _confirm(
+    final confirm = await showConfirmDialog(
       context,
       title: '清理全部本地数据',
       content: '确定删除本机所有账号和游客的心愿吗？这个操作不可恢复。',
+      confirmText: '清理',
     );
     if (confirm != true || !context.mounted) return;
 
@@ -237,8 +223,9 @@ class ProfilePage extends StatelessWidget {
     if (context.mounted) context.showSnack('本地数据已清理');
   }
 
+  /// 退出后回到游客视角, 重新加载无归属的本地数据
   Future<void> _logout(BuildContext context) async {
-    final confirm = await _confirm(
+    final confirm = await showConfirmDialog(
       context,
       title: '退出登录',
       content: '确定要退出当前账号吗？',
@@ -251,30 +238,5 @@ class ProfilePage extends StatelessWidget {
 
     await context.read<WishListModel>().loadLocalData(null);
     if (context.mounted) context.showSnack('已退出登录');
-  }
-
-  Future<bool?> _confirm(
-    BuildContext context, {
-    required String title,
-    required String content,
-    String confirmText = '清理',
-  }) {
-    return showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(title),
-        content: Text(content),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: Text(confirmText, style: const TextStyle(color: Colors.red)),
-          ),
-        ],
-      ),
-    );
   }
 }

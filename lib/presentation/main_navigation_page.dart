@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:wish_notes/logic/auth_model.dart';
 import '../repositories/wish_repository.dart';
-import '../utils/sp_utils.dart';
 import '../utils/toast_utils.dart';
 import '../logic/wish_list_model.dart';
 import 'wish_form_page.dart';
@@ -20,7 +19,9 @@ class MainNavigationPage extends StatefulWidget {
 class _MainNavigationPageState extends State<MainNavigationPage> {
   int _currentIndex = 0;
   late final AuthModel _auth;
+  String? _lastUsername;
   bool _checkingOrphan = false;
+  bool _orphanPromptDismissed = false;
 
   // 定义两个子页面列表
   final List<Widget> _pages = const [
@@ -32,9 +33,10 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
   void initState() {
     super.initState();
     _auth = context.read<AuthModel>();
+    _lastUsername = _auth.username;
     _auth.addListener(_onAuthChanged);
 
-    // 启动时检查一次旧版本遗留的无主心愿
+    // 启动时检查一次本机遗留的无主心愿
     WidgetsBinding.instance.addPostFrameCallback((_) => _checkOrphanWishes());
   }
 
@@ -45,18 +47,27 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
   }
 
   void _onAuthChanged() {
-    if (_auth.isLoggedIn) {
+    final username = _auth.username;
+    if (username == _lastUsername) return;
+
+    // 登录状态切换后重新加载对应账号的数据
+    // 未登录时用 null 读本地游客数据, 登录后读当前账号数据
+    _lastUsername = username;
+    _orphanPromptDismissed = false;
+    context.read<WishListModel>().loadLocalData(username);
+
+    if (username != null && username.isNotEmpty) {
       _checkOrphanWishes();
     }
   }
 
-  /// 旧版本可能留下没有作者的公开心愿, 第一次登录时问一下要不要归到当前账号
+  /// 本机可能留下没有归属账号的心愿(含未登录时创建的本地私有心愿)
+  /// 登录后问一下要不要归到当前账号, 否则这些心愿会被 owner 过滤掉
   Future<void> _checkOrphanWishes() async {
-    if (_checkingOrphan) return;
+    if (_checkingOrphan || _orphanPromptDismissed) return;
 
     final username = _auth.username;
     if (username == null || username.isEmpty) return;
-    if (SPUtils.getString(SPKey.orphanOwnerChecked) == '1') return;
 
     _checkingOrphan = true;
     try {
@@ -65,19 +76,15 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
       if (!mounted) return;
 
       final repo = WishRepository();
-      final count = await repo.countOrphanPublicWishes();
+      final count = await repo.countOrphanWishes();
       if (!mounted) return;
-
-      if (count == 0) {
-        await SPUtils.setString(SPKey.orphanOwnerChecked, '1');
-        return;
-      }
+      if (count == 0) return;
 
       final confirm = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
           title: const Text('发现未归属的心愿'),
-          content: Text('本机有 $count 条旧版本的公开心愿没有作者, 没法自动判断属于哪个账号。\n\n要把它们归到当前账号 @$username 名下吗？'),
+          content: Text('本机有 $count 条心愿还没有归属账号(包括未登录时创建的本地私有心愿), 登录后它们不会显示在你的列表里。\n\n要把它们归到当前账号 @$username 名下吗？'),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx, false),
@@ -94,12 +101,12 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
       if (!mounted || _auth.username != username) return;
 
       if (confirm != true) {
-        await SPUtils.setString(SPKey.orphanOwnerChecked, '1');
+        // 本次登录不再打扰, 下次启动仍会重新检查
+        _orphanPromptDismissed = true;
         return;
       }
 
-      final claimed = await repo.claimOrphanPublicWishes(username);
-      await SPUtils.setString(SPKey.orphanOwnerChecked, '1');
+      final claimed = await repo.claimOrphanWishes(username);
       if (!mounted) return;
 
       await context.read<WishListModel>().loadLocalData(username);
@@ -121,7 +128,7 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
       backgroundColor: Colors.transparent, // 必须透明,让底层的背景图露出来
       body: Stack(
         children: [
-          
+          // 两个页面都保留在 Stack 里, 切换时只改变透明度和点击响应, 避免丢状态
           ..._pages.asMap().entries.map((entry) {
             int idx = entry.key;
             Widget page = entry.value;

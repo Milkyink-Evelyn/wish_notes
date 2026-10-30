@@ -1,4 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 联网权限: release 包不会合并 debug 清单, 必须在这里声明 -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+
     <application
         android:label="wish_notes"
         android:name="${applicationName}"

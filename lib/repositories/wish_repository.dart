@@ -392,8 +392,8 @@ class WishRepository {
     return maps.map((e) => e[WishTable.colOwnerUsername] as String? ?? '').toList();
   }
 
-  /// 统计旧版本遗留的无主公开心愿(不含广场缓存)
-  Future<int> countOrphanPublicWishes() async {
+  /// 统计本机没有归属账号的心愿(含本地私有、广场缓存除外)
+  Future<int> countOrphanWishes() async {
     final db = DBUtils.db;
     final result = await db.rawQuery(
       '''
@@ -401,17 +401,14 @@ class WishRepository {
       WHERE ${WishTable.colOwnerUsername} IS NULL
         AND ${WishTable.colIsPublicCache} = 0
         AND ${WishTable.colIsDeleted} = 0
-        AND ${WishTable.colStorageMode} != ?
-        AND ${WishTable.colVisibility} = ?
       ''',
-      [StorageMode.local.value, WishVisibility.public.value],
     );
 
     return (result.first['total'] as int?) ?? 0;
   }
 
-  /// 把旧版本遗留的无主公开心愿归到指定账号, 返回认领数量
-  Future<int> claimOrphanPublicWishes(String username) async {
+  /// 把本机没有归属账号的心愿归到指定账号, 返回认领数量
+  Future<int> claimOrphanWishes(String username) async {
     final db = DBUtils.db;
     return await db.update(
       WishTable.name,
@@ -420,10 +417,7 @@ class WishRepository {
         ${WishTable.colOwnerUsername} IS NULL
         AND ${WishTable.colIsPublicCache} = 0
         AND ${WishTable.colIsDeleted} = 0
-        AND ${WishTable.colStorageMode} != ?
-        AND ${WishTable.colVisibility} = ?
       ''',
-      whereArgs: [StorageMode.local.value, WishVisibility.public.value],
     );
   }
 

@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../app_theme.dart';
 import '../logic/auth_model.dart';
 import '../models/wish_model.dart';
 import '../repositories/wish_repository.dart';
+import '../utils/dialog_utils.dart';
+import '../utils/time_utils.dart';
 import '../utils/toast_utils.dart';
 import '../utils/wish_api.dart';
-import 'login_page_test.dart';
+import '../widgets/app_card.dart';
+import '../widgets/comment_tile.dart';
+import '../widgets/wish_tags.dart';
+import 'login_page.dart';
 import 'wish_form_page.dart';
 
 class WishDetailPage extends StatefulWidget {
@@ -71,6 +75,7 @@ class _WishDetailPageState extends State<WishDetailPage> {
     }
   }
 
+  /// 先改本地状态, 云端能推就推, 推失败等下次同步
   Future<void> _toggleStatus() async {
     final nextStatus = _wish.status == 'REALIZED' ? 'UNREALIZED' : 'REALIZED';
     final updated = _wish.copyWith(status: nextStatus);
@@ -83,6 +88,7 @@ class _WishDetailPageState extends State<WishDetailPage> {
     await _pushWishToCloud();
   }
 
+  /// 编辑页保存后会返回新的心愿对象, 直接替换当前展示的数据
   Future<void> _editWish() async {
     final result = await Navigator.push<WishModel>(
       context,
@@ -110,26 +116,16 @@ class _WishDetailPageState extends State<WishDetailPage> {
   }
 
   Future<void> _deleteWish() async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('删除心愿'),
-        content: const Text('确定要删除这个心愿吗？'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('删除', style: TextStyle(color: Colors.red)),
-          ),
-        ],
-      ),
+    final confirm = await showConfirmDialog(
+      context,
+      title: '删除心愿',
+      content: '确定要删除这个心愿吗？',
+      confirmText: '删除',
     );
 
     if (confirm != true || !mounted) return;
 
+    // 本地先打墓碑, 云端删除交给同步流程处理
     final localId = _wish.localId;
     if (localId == null) return;
 
@@ -138,6 +134,7 @@ class _WishDetailPageState extends State<WishDetailPage> {
     Navigator.pop(context, true);
   }
 
+  /// 评论先发云端, 成功后再把新评论写回本地缓存
   Future<void> _sendComment() async {
     if (_isSending) return;
 
@@ -199,23 +196,13 @@ class _WishDetailPageState extends State<WishDetailPage> {
     _commentFocusNode.requestFocus();
   }
 
+  /// 删除成功后同步移除本地缓存里的这条评论
   Future<void> _deleteComment(CommentModel comment) async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('删除评论'),
-        content: const Text('确定要删除这条评论吗？'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('删除', style: TextStyle(color: Colors.red)),
-          ),
-        ],
-      ),
+    final confirm = await showConfirmDialog(
+      context,
+      title: '删除评论',
+      content: '确定要删除这条评论吗？',
+      confirmText: '删除',
     );
 
     if (confirm != true || !mounted) return;
@@ -257,6 +244,7 @@ class _WishDetailPageState extends State<WishDetailPage> {
       backgroundColor: const Color.fromARGB(189, 255, 255, 255),
       appBar: AppBar(title: const Text('心愿详情')),
       resizeToAvoidBottomInset: true,
+      // 心愿卡片和评论一起滚动, 评论输入框固定在底部
       body: Column(
         children: [
           Expanded(
@@ -282,30 +270,20 @@ class _WishDetailPageState extends State<WishDetailPage> {
   }
 
   Widget _buildWishCard(bool isOwner, bool isRealized) {
-    return Container(
+    return AppCard(
       padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: AppTheme.cardColor(context),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // 顶部: 状态、可见性和创建时间
           Row(
             children: [
-              _buildStatusChip(isRealized),
+              WishStatusTag(status: _wish.status),
               const SizedBox(width: 8),
-              _buildVisibilityChip(),
+              WishVisibilityTag(visibility: _wish.visibility),
               const Spacer(),
               Text(
-                _formatTime(_wish.createdAt),
+                formatWishTime(_wish.createdAt),
                 style: const TextStyle(fontSize: 12, color: Colors.grey),
               ),
             ],
@@ -318,7 +296,7 @@ class _WishDetailPageState extends State<WishDetailPage> {
           const SizedBox(height: 16),
           Row(
             children: [
-              _buildCategoryChip(),
+              WishCategoryTag(category: _wish.category),
               const SizedBox(width: 10),
               const Icon(Icons.person_outline, size: 14, color: Colors.grey),
               const SizedBox(width: 4),
@@ -332,6 +310,7 @@ class _WishDetailPageState extends State<WishDetailPage> {
               ),
             ],
           ),
+          // 只有作者本人能看到操作区
           if (isOwner) ...[
             const SizedBox(height: 14),
             const Divider(height: 1),
@@ -365,72 +344,6 @@ class _WishDetailPageState extends State<WishDetailPage> {
     );
   }
 
-  Widget _buildStatusChip(bool isRealized) {
-    final color = isRealized ? Colors.green : Colors.orange;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Text(
-        isRealized ? '已实现' : '未实现',
-        style: TextStyle(
-          fontSize: 12,
-          color: color,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildVisibilityChip() {
-    final isPublic = _wish.visibility == WishVisibility.public;
-    final color = isPublic ? Colors.blue : Colors.purple;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Text(
-        isPublic ? '公开' : '私有',
-        style: TextStyle(
-          fontSize: 12,
-          color: color,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCategoryChip() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: _wish.category.color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(_wish.category.icon, size: 12, color: _wish.category.color),
-          const SizedBox(width: 4),
-          Text(
-            _wish.category.label,
-            style: TextStyle(
-              fontSize: 10,
-              color: _wish.category.color,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildCommentHeader() {
     return Row(
       children: [
@@ -459,144 +372,25 @@ class _WishDetailPageState extends State<WishDetailPage> {
   }
 
   Widget _buildCommentTile(CommentModel comment, AuthModel auth) {
-    final nickname = comment.nickname.isNotEmpty ? comment.nickname : comment.username;
+    // 自己的评论和作者的评论用不同底色, 方便区分
     final isMine = auth.isLoggedIn &&
         (comment.username == auth.username ||
             (comment.userId != null && comment.userId == auth.userId));
     final isAuthor = _wish.ownerUsername != null && comment.username == _wish.ownerUsername;
 
-    // 自己的评论偏粉, 作者的评论偏蓝, 其他人用默认卡片色
-    final Color bubbleColor;
-    if (isMine) {
-      bubbleColor = const Color(0xFFFFF0F6).withValues(alpha: 0.92);
-    } else if (isAuthor) {
-      bubbleColor = const Color(0xFFEFF7FF).withValues(alpha: 0.92);
-    } else {
-      bubbleColor = AppTheme.cardColor(context);
-    }
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: bubbleColor,
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          CircleAvatar(
-            radius: 16,
-            backgroundColor: Colors.pinkAccent.withValues(alpha: 0.15),
-            child: Text(
-              nickname.isNotEmpty ? nickname.substring(0, 1) : '?',
-              style: const TextStyle(fontSize: 13, color: Colors.pinkAccent),
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        nickname,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    if (isMine || isAuthor) ...[
-                      const SizedBox(width: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                        decoration: BoxDecoration(
-                          color: (isMine ? Colors.pinkAccent : Colors.blue)
-                              .withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(
-                          isMine ? '我' : '作者',
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: isMine ? Colors.pinkAccent : Colors.blue,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-                const SizedBox(height: 5),
-                _buildCommentContent(comment.content),
-                const SizedBox(height: 6),
-                Row(
-                  children: [
-                    Text(
-                      _formatCommentTime(comment.createdAt),
-                      style: const TextStyle(fontSize: 11, color: Colors.grey),
-                    ),
-                    const Spacer(),
-                    GestureDetector(
-                      onTap: () => _startReply(comment),
-                      behavior: HitTestBehavior.opaque,
-                      child: const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                        child: Text(
-                          '回复',
-                          style: TextStyle(fontSize: 12, color: Colors.blueGrey),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          if (isMine)
-            GestureDetector(
-              onTap: () => _deleteComment(comment),
-              child: const Padding(
-                padding: EdgeInsets.only(left: 8, top: 2),
-                child: Icon(Icons.close, size: 16, color: Colors.grey),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildCommentContent(String content) {
-    // 识别人工拼上的 "回复 @xxx :" 前缀, 用蓝色标出来
-    final match = RegExp(r'^(回复\s*@[^:：\n]+?\s*[:：]\s*)').firstMatch(content);
-    if (match == null) {
-      return Text(
-        content,
-        style: const TextStyle(fontSize: 14, height: 1.4, color: Colors.black87),
-      );
-    }
-
-    final prefix = match.group(1)!;
-    return Text.rich(
-      TextSpan(
-        children: [
-          TextSpan(
-            text: prefix,
-            style: const TextStyle(color: Colors.blue),
-          ),
-          TextSpan(text: content.substring(prefix.length)),
-        ],
-      ),
-      style: const TextStyle(fontSize: 14, height: 1.4, color: Colors.black87),
+    return CommentTile(
+      comment: comment,
+      isMine: isMine,
+      isAuthor: isAuthor,
+      onReply: () => _startReply(comment),
+      onDelete: () => _deleteComment(comment),
     );
   }
 
   Widget _buildCommentInput(AuthModel auth) {
     final serverId = _wish.serverId;
 
+    // 未登录时只显示登录引导
     if (!auth.isLoggedIn) {
       return SafeArea(
         top: false,
@@ -626,6 +420,7 @@ class _WishDetailPageState extends State<WishDetailPage> {
       );
     }
 
+    // 纯本地心愿还没有 serverId, 评论接口用不了
     if (serverId == null) {
       return SafeArea(
         top: false,
@@ -705,30 +500,5 @@ class _WishDetailPageState extends State<WishDetailPage> {
         ),
       ),
     );
-  }
-
-  String _formatTime(int timestamp) {
-    final dt = DateTime.fromMillisecondsSinceEpoch(timestamp);
-    final now = DateTime.now();
-    if (dt.year == now.year && dt.month == now.month && dt.day == now.day) {
-      return '今天 ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
-    }
-    return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
-  }
-
-  String _formatCommentTime(String raw) {
-    final asInt = int.tryParse(raw);
-    final dt = asInt != null
-        ? DateTime.fromMillisecondsSinceEpoch(asInt)
-        : DateTime.tryParse(raw);
-
-    if (dt == null) return raw;
-
-    final local = dt.toLocal();
-    final now = DateTime.now();
-    if (local.year == now.year && local.month == now.month && local.day == now.day) {
-      return '今天 ${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
-    }
-    return '${local.year}-${local.month.toString().padLeft(2, '0')}-${local.day.toString().padLeft(2, '0')}';
   }
 }

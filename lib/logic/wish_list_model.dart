@@ -10,11 +10,14 @@ class WishListModel extends ChangeNotifier {
   bool _isLoading = false;
   WishCategory? _selectedCategory;
   String? _selectedOwner;
+  // 状态筛选: null=全部, REALIZED=已实现, UNREALIZED=未实现
+  String? _selectedStatus;
 
   List<WishModel> get wishes => _wishes;
   bool get isLoading => _isLoading;
   WishCategory? get selectedCategory => _selectedCategory;
   String? get selectedOwner => _selectedOwner;
+  String? get selectedStatus => _selectedStatus;
 
 
   List<String> get uniqueOwners {
@@ -39,6 +42,11 @@ class WishListModel extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setStatus(String? status) {
+    _selectedStatus = status;
+    notifyListeners();
+  }
+
   List<WishModel> get displayWishes {
     return _wishes.where((w) {
       // 1. 分类过滤
@@ -52,7 +60,10 @@ class WishListModel extends ChangeNotifier {
         matchOwner = w.ownerUsername == _selectedOwner;
       }
 
-      return matchCategory && matchOwner;
+      // 3. 状态过滤
+      final matchStatus = _selectedStatus == null || w.status == _selectedStatus;
+
+      return matchCategory && matchOwner && matchStatus;
     }).toList();
   }
   

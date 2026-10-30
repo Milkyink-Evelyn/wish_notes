@@ -26,6 +26,7 @@ class _SplashPageState extends State<SplashPage>
       const SystemUiOverlayStyle(statusBarColor: Colors.transparent),
     );
 
+    // 启动动画: 淡入 + 轻微放大
     _ctrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 800),
@@ -120,6 +121,7 @@ class _SplashPageState extends State<SplashPage>
             errorBuilder: (_, __, ___) => Container(color: Colors.white),
           ),
 
+          // 整屏磨砂, 让前景的 logo 和文字更清楚
           ClipRect(
             child: BackdropFilter(
               filter: ImageFilter.blur(sigmaX: 8.0, sigmaY: 8.0),
