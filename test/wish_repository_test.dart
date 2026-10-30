@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:wish_notes/models/wish_model.dart';
 import 'package:wish_notes/repositories/wish_repository.dart';
@@ -16,6 +19,8 @@ WishModel buildWish({
   String? ownerUsername,
   bool isDeleted = false,
   bool isPublicCache = false,
+  bool contentDirty = false,
+  bool statusDirty = false,
   int createdAt = 1700000000000,
 }) {
   return WishModel(
@@ -29,15 +34,45 @@ WishModel buildWish({
     category: category,
     ownerUsername: ownerUsername,
     isPublicCache: isPublicCache,
+    contentDirty: contentDirty,
+    statusDirty: statusDirty,
   );
 }
 
 /// 只返回预先准备好的数据, 测试同步逻辑时不碰网络
+/// 推送接口会同步改掉 myWishes 里的数据, 模拟服务器被更新
 class FakeWishApi extends WishApi {
   List<Map<String, dynamic>> myWishes = [];
+  int updateWishCalls = 0;
+  int updateStatusCalls = 0;
+  bool failUpdateWish = false;
+  bool failUpdateStatus = false;
 
   @override
   Future<List<Map<String, dynamic>>> fetchMyWishes() async => myWishes;
+
+  @override
+  Future<void> updateWish(int serverId, String content, String visibility) async {
+    updateWishCalls++;
+    if (failUpdateWish) throw Exception('updateWish failed');
+    for (final wish in myWishes) {
+      if (wish['id'] == serverId) {
+        wish['content'] = content;
+        wish['visibility'] = visibility;
+      }
+    }
+  }
+
+  @override
+  Future<void> updateWishStatus(int serverId, String status) async {
+    updateStatusCalls++;
+    if (failUpdateStatus) throw Exception('updateWishStatus failed');
+    for (final wish in myWishes) {
+      if (wish['id'] == serverId) {
+        wish['status'] = status;
+      }
+    }
+  }
 }
 
 /// 每条用例开一个全新的内存数据库
@@ -45,7 +80,7 @@ Future<Database> openTestDb() async {
   final db = await databaseFactory.openDatabase(
     inMemoryDatabasePath,
     options: OpenDatabaseOptions(
-      version: 3,
+      version: 4,
       onCreate: (db, version) => DBUtils.createTables(db),
     ),
   );
@@ -287,7 +322,7 @@ void main() {
       expect(wish.storageMode, StorageMode.cloud); // 本地没有正本, 转正后算云端专属
     });
 
-    test('私有智能心愿以本地为准, 不被云端覆盖', () async {
+    test('私有智能心愿有本地修改时以本地为准', () async {
       await repo.insertWish(buildWish(
         content: 'local private',
         visibility: WishVisibility.private,
@@ -295,6 +330,8 @@ void main() {
         serverId: 44,
         category: WishCategory.study,
         ownerUsername: 'alice',
+        contentDirty: true,
+        statusDirty: true,
       ));
 
       final api = FakeWishApi()
@@ -316,6 +353,38 @@ void main() {
       final wish = WishModel.fromMap(row);
       expect(wish.content, 'local private');
       expect(wish.status, WishStatus.unrealized);
+      expect(wish.category, WishCategory.study);
+      expect(wish.storageMode, StorageMode.smart);
+    });
+
+    test('私有智能心愿没有本地修改时接受云端', () async {
+      await repo.insertWish(buildWish(
+        content: 'local old',
+        visibility: WishVisibility.private,
+        storageMode: StorageMode.smart,
+        serverId: 48,
+        category: WishCategory.study,
+        ownerUsername: 'alice',
+      ));
+
+      final api = FakeWishApi()
+        ..myWishes = [
+          {
+            'id': 48,
+            'content': 'cloud new',
+            'visibility': 'PRIVATE',
+            'status': 'REALIZED',
+            'createdAt': '2026-10-30T10:00:00.000Z',
+            'username': 'alice',
+            'comments': [],
+          },
+        ];
+
+      await WishRepository(api: api).pullMyWishes('alice');
+
+      final wish = WishModel.fromMap((await db.query(WishTable.name)).single);
+      expect(wish.content, 'cloud new');
+      expect(wish.status, WishStatus.realized);
       expect(wish.category, WishCategory.study);
       expect(wish.storageMode, StorageMode.smart);
     });
@@ -407,6 +476,251 @@ void main() {
 
       await repo.clearCloudWishes();
       expect(await db.query(WishTable.name), isEmpty);
+    });
+  });
+
+  group('脏标记同步', () {
+    test('只推内容, 不推状态', () async {
+      await repo.insertWish(buildWish(
+        content: 'local edit',
+        visibility: WishVisibility.private,
+        storageMode: StorageMode.smart,
+        serverId: 50,
+        ownerUsername: 'alice',
+        contentDirty: true,
+      ));
+
+      final api = FakeWishApi()
+        ..myWishes = [
+          {
+            'id': 50,
+            'content': 'cloud old',
+            'visibility': 'PRIVATE',
+            'status': 'UNREALIZED',
+            'createdAt': '2026-10-30T10:00:00.000Z',
+            'username': 'alice',
+            'comments': [],
+          },
+        ];
+
+      final dirtyRepo = WishRepository(api: api);
+      await dirtyRepo.pushUpdatedWishes('alice');
+      await dirtyRepo.pushUpdatedStatus('alice');
+
+      expect(api.updateWishCalls, 1);
+      expect(api.updateStatusCalls, 0);
+
+      final wish = WishModel.fromMap((await db.query(WishTable.name)).single);
+      expect(wish.content, 'local edit');
+      expect(wish.contentDirty, isFalse);
+      expect(wish.statusDirty, isFalse);
+    });
+
+    test('只推状态, 不推内容', () async {
+      await repo.insertWish(buildWish(
+        content: 'same content',
+        visibility: WishVisibility.private,
+        storageMode: StorageMode.smart,
+        serverId: 51,
+        status: WishStatus.realized,
+        ownerUsername: 'alice',
+        statusDirty: true,
+      ));
+
+      final api = FakeWishApi()
+        ..myWishes = [
+          {
+            'id': 51,
+            'content': 'same content',
+            'visibility': 'PRIVATE',
+            'status': 'UNREALIZED',
+            'createdAt': '2026-10-30T10:00:00.000Z',
+            'username': 'alice',
+            'comments': [],
+          },
+        ];
+
+      final dirtyRepo = WishRepository(api: api);
+      await dirtyRepo.pushUpdatedWishes('alice');
+      await dirtyRepo.pushUpdatedStatus('alice');
+
+      expect(api.updateWishCalls, 0);
+      expect(api.updateStatusCalls, 1);
+
+      final wish = WishModel.fromMap((await db.query(WishTable.name)).single);
+      expect(wish.status, WishStatus.realized);
+      expect(wish.statusDirty, isFalse);
+    });
+
+    test('推送失败时保留脏标记', () async {
+      await repo.insertWish(buildWish(
+        content: 'local edit',
+        visibility: WishVisibility.private,
+        storageMode: StorageMode.smart,
+        serverId: 52,
+        status: WishStatus.realized,
+        ownerUsername: 'alice',
+        contentDirty: true,
+        statusDirty: true,
+      ));
+
+      final api = FakeWishApi()
+        ..failUpdateWish = true
+        ..failUpdateStatus = true;
+
+      final dirtyRepo = WishRepository(api: api);
+      await dirtyRepo.pushUpdatedWishes('alice');
+      await dirtyRepo.pushUpdatedStatus('alice');
+
+      final wish = WishModel.fromMap((await db.query(WishTable.name)).single);
+      expect(wish.contentDirty, isTrue);
+      expect(wish.statusDirty, isTrue);
+    });
+
+    test('拉取时脏字段保留本地, 干净字段接受云端', () async {
+      await repo.insertWish(buildWish(
+        content: 'local edit',
+        visibility: WishVisibility.private,
+        storageMode: StorageMode.smart,
+        serverId: 53,
+        ownerUsername: 'alice',
+        contentDirty: true,
+      ));
+
+      final api = FakeWishApi()
+        ..myWishes = [
+          {
+            'id': 53,
+            'content': 'cloud content',
+            'visibility': 'PRIVATE',
+            'status': 'REALIZED',
+            'createdAt': '2026-10-30T10:00:00.000Z',
+            'username': 'alice',
+            'comments': [],
+          },
+        ];
+
+      await WishRepository(api: api).pullMyWishes('alice');
+
+      final wish = WishModel.fromMap((await db.query(WishTable.name)).single);
+      expect(wish.content, 'local edit'); // 内容有本地修改, 不被覆盖
+      expect(wish.contentDirty, isTrue);
+      expect(wish.status, WishStatus.realized); // 状态没改过, 跟随云端
+      expect(wish.statusDirty, isFalse);
+    });
+
+    test('完整同步把本地修改推上去', () async {
+      await repo.insertWish(buildWish(
+        content: 'local edit',
+        visibility: WishVisibility.private,
+        storageMode: StorageMode.smart,
+        serverId: 54,
+        status: WishStatus.realized,
+        ownerUsername: 'alice',
+        contentDirty: true,
+        statusDirty: true,
+      ));
+
+      final api = FakeWishApi()
+        ..myWishes = [
+          {
+            'id': 54,
+            'content': 'cloud old',
+            'visibility': 'PRIVATE',
+            'status': 'UNREALIZED',
+            'createdAt': '2026-10-30T10:00:00.000Z',
+            'username': 'alice',
+            'comments': [],
+          },
+        ];
+
+      await WishRepository(api: api).syncAll('alice');
+
+      expect(api.updateWishCalls, 1);
+      expect(api.updateStatusCalls, 1);
+
+      final wish = WishModel.fromMap((await db.query(WishTable.name)).single);
+      expect(wish.content, 'local edit');
+      expect(wish.status, WishStatus.realized);
+      expect(wish.contentDirty, isFalse);
+      expect(wish.statusDirty, isFalse);
+    });
+  });
+
+  group('数据库升级', () {
+    test('v3 升级到 v4 补齐脏标记, 智能存储的已同步心愿标脏', () async {
+      // 内存库和 setUp 里那条连接会共用, 这里用临时文件单独开一个
+      final tempDir = await Directory.systemTemp.createTemp('wish_notes_test_');
+      Database? openedDb;
+
+      try {
+        final v3db = await databaseFactory.openDatabase(
+          p.join(tempDir.path, 'v3.db'),
+          options: OpenDatabaseOptions(
+            version: 3,
+            onCreate: (db, version) async {
+              await db.execute('''
+                CREATE TABLE ${WishTable.name} (
+                  ${WishTable.colLocalId} INTEGER PRIMARY KEY AUTOINCREMENT,
+                  ${WishTable.colServerId} INTEGER,
+                  ${WishTable.colContent} TEXT NOT NULL,
+                  ${WishTable.colVisibility} TEXT NOT NULL,
+                  ${WishTable.colStatus} TEXT NOT NULL,
+                  ${WishTable.colStorageMode} TEXT NOT NULL,
+                  ${WishTable.colCreatedAt} INTEGER NOT NULL,
+                  ${WishTable.colIsDeleted} INTEGER NOT NULL DEFAULT 0,
+                  ${WishTable.colCategory} TEXT,
+                  ${WishTable.colComments} TEXT,
+                  ${WishTable.colOwnerUsername} TEXT,
+                  ${WishTable.colIsPublicCache} INTEGER NOT NULL DEFAULT 0
+                )
+              ''');
+            },
+          ),
+        );
+        openedDb = v3db;
+
+        Future<void> insertRow(
+          String content,
+          int? serverId,
+          StorageMode mode, {
+          int isDeleted = 0,
+        }) async {
+          await v3db.insert(WishTable.name, {
+            WishTable.colServerId: serverId,
+            WishTable.colContent: content,
+            WishTable.colVisibility: WishVisibility.private.value,
+            WishTable.colStatus: WishStatus.unrealized,
+            WishTable.colStorageMode: mode.value,
+            WishTable.colCreatedAt: 1700000000000,
+            WishTable.colIsDeleted: isDeleted,
+          });
+        }
+
+        await insertRow('smart synced', 1, StorageMode.smart);
+        await insertRow('cloud synced', 2, StorageMode.cloud);
+        await insertRow('local only', null, StorageMode.local);
+        await insertRow('smart tombstone', 3, StorageMode.smart, isDeleted: 1);
+        await insertRow('smart unsynced', null, StorageMode.smart);
+
+        await DBUtils.upgradeTables(v3db, 3, 4);
+
+        final rows = await v3db.query(WishTable.name);
+        final byContent = {
+          for (final row in rows) row[WishTable.colContent] as String: row,
+        };
+
+        expect(byContent['smart synced']![WishTable.colContentDirty], 1);
+        expect(byContent['smart synced']![WishTable.colStatusDirty], 1);
+        expect(byContent['cloud synced']![WishTable.colContentDirty], 0);
+        expect(byContent['cloud synced']![WishTable.colStatusDirty], 0);
+        expect(byContent['local only']![WishTable.colContentDirty], 0);
+        expect(byContent['smart tombstone']![WishTable.colContentDirty], 0);
+        expect(byContent['smart unsynced']![WishTable.colContentDirty], 0);
+      } finally {
+        await openedDb?.close();
+        await tempDir.delete(recursive: true);
+      }
     });
   });
 }

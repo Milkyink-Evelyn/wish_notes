@@ -26,7 +26,7 @@ void main() {
     final db = await databaseFactory.openDatabase(
       inMemoryDatabasePath,
       options: OpenDatabaseOptions(
-        version: 3,
+        version: 4,
         onCreate: (db, version) => DBUtils.createTables(db),
       ),
     );

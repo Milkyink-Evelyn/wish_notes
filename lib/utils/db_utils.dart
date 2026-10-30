@@ -1,5 +1,7 @@
+import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
+import '../models/wish_model.dart';
 
 /// 心愿表结构常量
 abstract class WishTable {
@@ -29,6 +31,10 @@ abstract class WishTable {
   static const String colOwnerUsername = 'owner_username';
   /// 广场缓存标记: 0自己的数据, 1缓存别人的公开心愿
   static const String colIsPublicCache = 'is_public_cache';
+  /// 本地内容/可见性还没同步到云端
+  static const String colContentDirty = 'content_dirty';
+  /// 本地状态还没同步到云端
+  static const String colStatusDirty = 'status_dirty';
 }
 
 /// DB工具类
@@ -43,21 +49,47 @@ class DBUtils {
 
     _db = await openDatabase(
       path,
-      version: 3,
+      version: 4,
       onCreate: (db, version) => createTables(db),
-      onUpgrade: (db, oldVersion, newVersion) async {
-        if (oldVersion < 2) {
-          await db.execute(
-            'ALTER TABLE ${WishTable.name} ADD COLUMN ${WishTable.colOwnerUsername} TEXT'
-          );
-        }
-        if (oldVersion < 3) {
-          await db.execute(
-            'ALTER TABLE ${WishTable.name} ADD COLUMN ${WishTable.colIsPublicCache} INTEGER NOT NULL DEFAULT 0'
-          );
-        }
-      },
+      onUpgrade: upgradeTables,
     );
+  }
+
+  /// 数据库升级, 生产和测试共用
+  static Future<void> upgradeTables(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      await db.execute(
+        'ALTER TABLE ${WishTable.name} ADD COLUMN ${WishTable.colOwnerUsername} TEXT'
+      );
+    }
+    if (oldVersion < 3) {
+      await db.execute(
+        'ALTER TABLE ${WishTable.name} ADD COLUMN ${WishTable.colIsPublicCache} INTEGER NOT NULL DEFAULT 0'
+      );
+    }
+    if (oldVersion < 4) {
+      await db.execute(
+        'ALTER TABLE ${WishTable.name} ADD COLUMN ${WishTable.colContentDirty} INTEGER NOT NULL DEFAULT 0'
+      );
+      await db.execute(
+        'ALTER TABLE ${WishTable.name} ADD COLUMN ${WishTable.colStatusDirty} INTEGER NOT NULL DEFAULT 0'
+      );
+      // 智能存储本地优先, 升级后先让本地这份推一次; 云端存储以服务器为准, 保持干净
+      final marked = await db.update(
+        WishTable.name,
+        {
+          WishTable.colContentDirty: 1,
+          WishTable.colStatusDirty: 1,
+        },
+        where: '''
+          ${WishTable.colStorageMode} = ?
+          AND ${WishTable.colServerId} IS NOT NULL
+          AND ${WishTable.colIsDeleted} = 0
+        ''',
+        whereArgs: [StorageMode.smart.value],
+      );
+      debugPrint('数据库升级 v$oldVersion -> v$newVersion, 标脏 $marked 条智能心愿');
+    }
   }
 
   /// 建表语句, 生产和测试共用
@@ -75,7 +107,9 @@ class DBUtils {
         ${WishTable.colCategory} TEXT,
         ${WishTable.colComments} TEXT,
         ${WishTable.colOwnerUsername} TEXT,
-        ${WishTable.colIsPublicCache} INTEGER NOT NULL DEFAULT 0
+        ${WishTable.colIsPublicCache} INTEGER NOT NULL DEFAULT 0,
+        ${WishTable.colContentDirty} INTEGER NOT NULL DEFAULT 0,
+        ${WishTable.colStatusDirty} INTEGER NOT NULL DEFAULT 0
       )
     ''');
   }

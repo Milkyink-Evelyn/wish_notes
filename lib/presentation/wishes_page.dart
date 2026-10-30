@@ -204,7 +204,7 @@ class _MyWishesView extends StatelessWidget {
               final repo = WishRepository();
               final nextStatus = WishStatus.toggle(wish.status);
               final updated = wish.copyWith(status: nextStatus);
-              await repo.updateWishLocal(updated);
+              await repo.updateWishStatus(updated);
               if (context.mounted) {
                 context.showSnack(WishStatus.isRealized(nextStatus) ? '心愿实现啦~' : '已标记为未实现');
                 model.loadLocalData(currentUsername);

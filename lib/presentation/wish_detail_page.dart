@@ -67,7 +67,11 @@ class _WishDetailPageState extends State<WishDetailPage> {
         ownerUsername: isCache ? cloudWish.ownerUsername : null,
       );
 
-      await _repo.updateWishLocal(updated);
+      if (isCache) {
+        await _repo.updateWishLocal(updated);
+      } else {
+        await _repo.updateWishComments(updated);
+      }
       if (!mounted) return;
       setState(() => _wish = updated);
     } catch (e) {
@@ -78,9 +82,9 @@ class _WishDetailPageState extends State<WishDetailPage> {
   /// 先改本地状态, 云端能推就推, 推失败等下次同步
   Future<void> _toggleStatus() async {
     final nextStatus = WishStatus.toggle(_wish.status);
-    final updated = _wish.copyWith(status: nextStatus);
+    final updated = _wish.copyWith(status: nextStatus, statusDirty: true);
 
-    await _repo.updateWishLocal(updated);
+    await _repo.updateWishStatus(updated);
     if (!mounted) return;
 
     setState(() => _wish = updated);
@@ -108,8 +112,14 @@ class _WishDetailPageState extends State<WishDetailPage> {
     if (!context.read<AuthModel>().isLoggedIn) return;
 
     try {
-      await _api.updateWish(serverId, _wish.content, _wish.visibility.value);
-      await _api.updateWishStatus(serverId, _wish.status);
+      if (_wish.contentDirty) {
+        await _repo.pushWishContent(_wish);
+        if (mounted) setState(() => _wish = _wish.copyWith(contentDirty: false));
+      }
+      if (_wish.statusDirty) {
+        await _repo.pushWishStatus(_wish);
+        if (mounted) setState(() => _wish = _wish.copyWith(statusDirty: false));
+      }
     } catch (e) {
       debugPrint('推送心愿修改失败: $e');
     }
@@ -159,7 +169,7 @@ class _WishDetailPageState extends State<WishDetailPage> {
       final data = await _api.addComment(serverId, content);
       final newComment = CommentModel.fromJson(data);
       final updated = _wish.copyWith(comments: [..._wish.comments, newComment]);
-      await _repo.updateWishLocal(updated);
+      await _repo.updateWishComments(updated);
 
       if (!mounted) return;
       setState(() {
@@ -215,7 +225,7 @@ class _WishDetailPageState extends State<WishDetailPage> {
       final updated = _wish.copyWith(
         comments: _wish.comments.where((e) => e.id != comment.id).toList(),
       );
-      await _repo.updateWishLocal(updated);
+      await _repo.updateWishComments(updated);
 
       if (!mounted) return;
       setState(() => _wish = updated);

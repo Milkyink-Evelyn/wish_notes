@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart' show debugPrint;
 import 'package:wish_notes/utils/wish_api.dart';
 import '../utils/db_utils.dart';
@@ -198,28 +199,21 @@ class WishRepository {
             where: '${WishTable.colLocalId} = ?',
             whereArgs: [localWish.localId],
           );
-        } else if (localWish.storageMode == StorageMode.cloud) { // 云端存储以服务器为准
-          final updateMap = cloudWish.toMap();
-          updateMap[WishTable.colLocalId] = localWish.localId;
-          updateMap[WishTable.colCategory] = localWish.category.name; // 后端没有分类字段, 保留本地的
+        } else if (localWish.storageMode == StorageMode.local) { // 纯本地不参与云端合并
+          continue;
+        } else { // 按字段合并: 本地改过的保留本地, 没改过的接受云端
+          final merged = _mergeCloudWish(localWish, cloudWish);
+          debugPrint(
+            '合并心愿 serverId=${cloudWish.serverId} '
+            '内容脏=${merged.contentDirty} 状态脏=${merged.statusDirty}'
+          );
           await db.update(
             WishTable.name,
-            updateMap,
+            merged.toMap(),
             where: '${WishTable.colLocalId} = ?',
             whereArgs: [localWish.localId],
           );
-        } else if (localWish.visibility == WishVisibility.public) { // 公开心愿智能存储同步以服务器为主
-          final updateMap = cloudWish.toMap();
-          updateMap[WishTable.colLocalId] = localWish.localId;
-          updateMap[WishTable.colCategory] = localWish.category.name; // 后端没有分类字段, 保留本地的
-          updateMap[WishTable.colStorageMode] = localWish.storageMode.value; // 别把本地的存储模式冲掉
-          await db.update(
-            WishTable.name,
-            updateMap,
-            where: '${WishTable.colLocalId} = ?',
-            whereArgs: [localWish.localId],
-          );
-        }// 私有心愿智能存储同步以本地为主, 不作修改
+        }
       } else {  // 本地数据缺失/丢失,用云端数据恢复, 本地没正本, 记成云端专属
         final insertMap = cloudWish.toMap();
         insertMap.remove(WishTable.colLocalId);
@@ -244,6 +238,26 @@ class WishRepository {
         );
       }
     }
+  }
+
+  /// 合并云端数据: 本地有未同步修改的字段保留本地, 其余字段接受云端
+  WishModel _mergeCloudWish(WishModel local, WishModel cloud) {
+    return WishModel(
+      localId: local.localId,
+      serverId: cloud.serverId,
+      content: local.contentDirty ? local.content : cloud.content,
+      visibility: local.contentDirty ? local.visibility : cloud.visibility,
+      status: local.statusDirty ? local.status : cloud.status,
+      storageMode: local.storageMode, // 存储模式只在创建时确定
+      createdAt: cloud.createdAt,
+      isDeleted: local.isDeleted,
+      category: local.category, // 后端没有分类字段, 永远用本地的
+      comments: cloud.comments,
+      ownerUsername: cloud.ownerUsername ?? local.ownerUsername,
+      isPublicCache: local.isPublicCache,
+      contentDirty: local.contentDirty,
+      statusDirty: local.statusDirty,
+    );
   }
 
   /// 处理墓碑软删除
@@ -303,68 +317,113 @@ class WishRepository {
           where: '${WishTable.colLocalId} = ?',
           whereArgs: [localWish.localId],
         );
+
+        // 创建时已经把当前内容传上去了, 内容和可见性没再变的话可以顺便清脏
+        await db.update(
+          WishTable.name,
+          {WishTable.colContentDirty: 0},
+          where: '''
+            ${WishTable.colLocalId} = ?
+            AND ${WishTable.colContent} = ?
+            AND ${WishTable.colVisibility} = ?
+          ''',
+          whereArgs: [localWish.localId, localWish.content, localWish.visibility.value],
+        );
       } catch (e) {
         debugPrint('推送新建心愿失败 localId=${localWish.localId}: $e');
       }
     }
   }
 
-  /// 将本地已修改状态的心愿推送到云端
+  /// 只推送本地改过的状态
   Future<void> pushUpdatedStatus(String currentUsername) async {
     final db = DBUtils.db;
-    // 查出所有：已同步过(server_id不为空)、未删除、非纯本地 且 状态与云端不一致的心愿
-    // (因为本地没有记录云端上一次的状态,为了简单,我们这里全量推送本地的状态)
     final maps = await db.query(
       WishTable.name,
       where: '''
         ${WishTable.colServerId} IS NOT NULL 
         AND ${WishTable.colIsDeleted} = 0 
         AND ${WishTable.colStorageMode} != ?
+        AND ${WishTable.colStatusDirty} = 1
         AND ${WishTable.colOwnerUsername} = ?
       ''',
       whereArgs: [StorageMode.local.value, currentUsername],
     );
+    debugPrint('待推送状态修改 ${maps.length} 条');
 
     for (var map in maps) {
       final localWish = WishModel.fromMap(map);
       try {
-        await _api.updateWishStatus(localWish.serverId!, localWish.status);
+        await pushWishStatus(localWish);
       } catch (e) {
         debugPrint('推送状态失败 localId=${localWish.localId}: $e');
       }
     }
   }
 
-  /// 推送本地修改过内容/可见性的心愿到云端
+  /// 立即推送单条状态, 成功后清掉脏标记
+  Future<void> pushWishStatus(WishModel wish) async {
+    await _api.updateWishStatus(wish.serverId!, wish.status);
+    debugPrint('状态已推送 localId=${wish.localId} serverId=${wish.serverId}');
+
+    final localId = wish.localId;
+    if (localId == null) return;
+
+    // 推送期间用户可能又改了, 状态还对得上才清标记
+    await DBUtils.db.update(
+      WishTable.name,
+      {WishTable.colStatusDirty: 0},
+      where: '${WishTable.colLocalId} = ? AND ${WishTable.colStatus} = ?',
+      whereArgs: [localId, wish.status],
+    );
+  }
+
+  /// 只推送本地改过的内容/可见性
   Future<void> pushUpdatedWishes(String currentUsername) async {
     final db = DBUtils.db;
-
-    // 查出所有已同步过、未删除、非纯本地的数据
     final maps = await db.query(
       WishTable.name,
       where: '''
         ${WishTable.colServerId} IS NOT NULL 
         AND ${WishTable.colIsDeleted} = 0 
         AND ${WishTable.colStorageMode} != ?
+        AND ${WishTable.colContentDirty} = 1
         AND ${WishTable.colOwnerUsername} = ?
       ''',
       whereArgs: [StorageMode.local.value, currentUsername],
     );
+    debugPrint('待推送内容修改 ${maps.length} 条');
 
     for (var map in maps) {
       final localWish = WishModel.fromMap(map);
-      
       // 公开、私有都推送: 公开心愿需要登录作者才能修改, 改完要覆盖云端
       try {
-        await _api.updateWish(
-          localWish.serverId!, 
-          localWish.content, 
-          localWish.visibility.value
-        );
+        await pushWishContent(localWish);
       } catch (e) {
         debugPrint('推送修改心愿失败 localId=${localWish.localId}: $e');
       }
     }
+  }
+
+  /// 立即推送单条内容/可见性, 成功后清掉脏标记
+  Future<void> pushWishContent(WishModel wish) async {
+    await _api.updateWish(wish.serverId!, wish.content, wish.visibility.value);
+    debugPrint('内容已推送 localId=${wish.localId} serverId=${wish.serverId}');
+
+    final localId = wish.localId;
+    if (localId == null) return;
+
+    // 推送期间用户可能又改了, 内容和可见性还对得上才清标记
+    await DBUtils.db.update(
+      WishTable.name,
+      {WishTable.colContentDirty: 0},
+      where: '''
+        ${WishTable.colLocalId} = ?
+        AND ${WishTable.colContent} = ?
+        AND ${WishTable.colVisibility} = ?
+      ''',
+      whereArgs: [localId, wish.content, wish.visibility.value],
+    );
   }
 
   /// 完整的云端同步流程
@@ -397,12 +456,57 @@ class WishRepository {
     }
   }
 
-  /// 更新本地心愿数据(用于切换状态)
+  /// 更新本地心愿数据(云端回写/缓存刷新用), 不改脏标记
   Future<void> updateWishLocal(WishModel wish) async {
     final db = DBUtils.db;
     await db.update(
       WishTable.name,
       wish.toMap(),
+      where: '${WishTable.colLocalId} = ?',
+      whereArgs: [wish.localId],
+    );
+  }
+
+  /// 本地编辑内容/可见性, 标脏
+  Future<void> updateWishContent(WishModel wish) async {
+    final db = DBUtils.db;
+    debugPrint('本地修改内容 localId=${wish.localId} 可见性=${wish.visibility.value}');
+    await db.update(
+      WishTable.name,
+      {
+        WishTable.colContent: wish.content,
+        WishTable.colVisibility: wish.visibility.value,
+        WishTable.colCategory: wish.category.name,
+        WishTable.colContentDirty: 1,
+      },
+      where: '${WishTable.colLocalId} = ?',
+      whereArgs: [wish.localId],
+    );
+  }
+
+  /// 本地切换状态, 标脏
+  Future<void> updateWishStatus(WishModel wish) async {
+    final db = DBUtils.db;
+    debugPrint('本地修改状态 localId=${wish.localId} 状态=${wish.status}');
+    await db.update(
+      WishTable.name,
+      {
+        WishTable.colStatus: wish.status,
+        WishTable.colStatusDirty: 1,
+      },
+      where: '${WishTable.colLocalId} = ?',
+      whereArgs: [wish.localId],
+    );
+  }
+
+  /// 只更新评论, 不动脏标记
+  Future<void> updateWishComments(WishModel wish) async {
+    final db = DBUtils.db;
+    await db.update(
+      WishTable.name,
+      {
+        WishTable.colComments: jsonEncode(wish.comments.map((e) => e.toJson()).toList()),
+      },
       where: '${WishTable.colLocalId} = ?',
       whereArgs: [wish.localId],
     );

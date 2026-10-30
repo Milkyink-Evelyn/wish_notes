@@ -90,6 +90,8 @@ class WishModel {
   final List<CommentModel> comments;
   final String? ownerUsername;
   final bool isPublicCache; // 是否广场缓存(别人的公开心愿)
+  final bool contentDirty; // 内容/可见性有未同步的本地修改
+  final bool statusDirty; // 状态有未同步的本地修改
 
   WishModel({
     this.localId,
@@ -104,6 +106,8 @@ class WishModel {
     this.comments = const [],
     this.ownerUsername,
     this.isPublicCache = false,
+    this.contentDirty = false,
+    this.statusDirty = false,
   });
 
   /// 将对象转成Map,以便存入数据库
@@ -121,6 +125,8 @@ class WishModel {
       'comments_json': jsonEncode(comments.map((e) => e.toJson()).toList()),
       'owner_username': ownerUsername,
       'is_public_cache': isPublicCache ? 1 : 0,
+      'content_dirty': contentDirty ? 1 : 0,
+      'status_dirty': statusDirty ? 1 : 0,
     };
   }
 
@@ -145,6 +151,8 @@ class WishModel {
       comments: commentList,
       ownerUsername: map['owner_username'] as String?,
       isPublicCache: (map['is_public_cache'] as int? ?? 0) == 1,
+      contentDirty: (map['content_dirty'] as int? ?? 0) == 1,
+      statusDirty: (map['status_dirty'] as int? ?? 0) == 1,
     );
   }
 
@@ -180,6 +188,8 @@ class WishModel {
     List<CommentModel>? comments,
     String? ownerUsername,
     bool? isPublicCache,
+    bool? contentDirty,
+    bool? statusDirty,
   }) {
     return WishModel(
       localId: localId ?? this.localId,
@@ -194,6 +204,8 @@ class WishModel {
       comments: comments ?? this.comments,
       ownerUsername: ownerUsername ?? this.ownerUsername,
       isPublicCache: isPublicCache ?? this.isPublicCache,
+      contentDirty: contentDirty ?? this.contentDirty,
+      statusDirty: statusDirty ?? this.statusDirty,
     );
   }
 }

@@ -35,7 +35,7 @@ class _WishFormPageState extends State<WishFormPage> {
       }
 
       if (_selectedMode == StorageMode.local) {
-        context.showSnack('本地存储不能设为公开, 请先切换存储模式');
+        context.showSnack('本地存储不能设为公开, 如需公开请新建一个心愿');
         return;
       }
     }
@@ -131,7 +131,7 @@ class _WishFormPageState extends State<WishFormPage> {
 
     // 兜底: 公开心愿不能留在纯本地存储里
     if (_selectedVisibility == WishVisibility.public && _selectedMode == StorageMode.local) {
-      context.showSnack('本地存储不能设为公开, 请先切换存储模式');
+      context.showSnack('本地存储不能设为公开, 如需公开请新建一个心愿');
       return;
     }
 
@@ -147,8 +147,9 @@ class _WishFormPageState extends State<WishFormPage> {
           visibility: _selectedVisibility,
           category: _selectedCategory,
           storageMode: _selectedMode,
+          contentDirty: true,
         );
-        await repo.updateWishLocal(updated);
+        await repo.updateWishContent(updated);
 
         if (!mounted) return;
         debugPrint('--- 准备返回编辑结果 ---');
