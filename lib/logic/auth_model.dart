@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import '../repositories/wish_repository.dart';
 import '../utils/sp_utils.dart';
 import '../utils/auth_api.dart';
 
@@ -120,6 +121,14 @@ class AuthModel extends ChangeNotifier {
     _nickname = null;
     await SPUtils.remove(SPKey.token);
     await SPUtils.remove(SPKey.userInfo);
+
+    // 云端专属的心愿留在本机会被当成游客数据展示, 退出时直接清掉
+    try {
+      await WishRepository().clearCloudWishes();
+    } catch (e) {
+      debugPrint('清理云端心愿失败: $e');
+    }
+
     notifyListeners(); // 退出登录
   }
 }

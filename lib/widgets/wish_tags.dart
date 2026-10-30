@@ -9,7 +9,7 @@ class WishStatusTag extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isRealized = status == 'REALIZED';
+    final isRealized = WishStatus.isRealized(status);
     final color = isRealized ? Colors.green : Colors.orange;
 
     return _TagBox(

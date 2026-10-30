@@ -77,14 +77,14 @@ class _WishDetailPageState extends State<WishDetailPage> {
 
   /// 先改本地状态, 云端能推就推, 推失败等下次同步
   Future<void> _toggleStatus() async {
-    final nextStatus = _wish.status == 'REALIZED' ? 'UNREALIZED' : 'REALIZED';
+    final nextStatus = WishStatus.toggle(_wish.status);
     final updated = _wish.copyWith(status: nextStatus);
 
     await _repo.updateWishLocal(updated);
     if (!mounted) return;
 
     setState(() => _wish = updated);
-    context.showSnack(nextStatus == 'REALIZED' ? '心愿实现啦~' : '已标记为未实现');
+    context.showSnack(WishStatus.isRealized(nextStatus) ? '心愿实现啦~' : '已标记为未实现');
     await _pushWishToCloud();
   }
 
@@ -125,11 +125,11 @@ class _WishDetailPageState extends State<WishDetailPage> {
 
     if (confirm != true || !mounted) return;
 
-    // 本地先打墓碑, 云端删除交给同步流程处理
+    // 没上过云的直接删, 上过云的打墓碑, 云端删除交给同步流程
     final localId = _wish.localId;
     if (localId == null) return;
 
-    await _repo.softDeleteWish(localId);
+    await _repo.deleteWish(localId);
     if (!mounted) return;
     Navigator.pop(context, true);
   }
@@ -238,7 +238,7 @@ class _WishDetailPageState extends State<WishDetailPage> {
   Widget build(BuildContext context) {
     final auth = context.watch<AuthModel>();
     final isOwner = _wish.ownerUsername == auth.username;
-    final isRealized = _wish.status == 'REALIZED';
+    final isRealized = WishStatus.isRealized(_wish.status);
 
     return Scaffold(
       backgroundColor: const Color.fromARGB(189, 255, 255, 255),

@@ -6,6 +6,7 @@ import 'package:wish_notes/app_theme.dart';
 import 'logic/wish_list_model.dart';
 import 'presentation/splash_page.dart';
 import 'logic/auth_model.dart';
+import 'repositories/wish_repository.dart';
 import 'utils/sp_utils.dart';
 import 'utils/db_utils.dart';
 
@@ -17,10 +18,16 @@ void main() async {
   // 初始化数据库
   await DBUtils.init();
 
+  final auth = AuthModel()..restore();
+  // 未登录时清掉上次会话残留的云端心愿, 避免被当成游客数据展示
+  if (!auth.isLoggedIn) {
+    await WishRepository().clearCloudWishes();
+  }
+
   runApp(
     MultiProvider(
       providers: [
-        ChangeNotifierProvider(create: (_) => AuthModel()..restore()),
+        ChangeNotifierProvider.value(value: auth),
         ChangeNotifierProvider(create: (_) => WishListModel()),
       ],
       child: const MyApp(),

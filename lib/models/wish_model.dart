@@ -41,6 +41,18 @@ enum WishVisibility {
   }
 }
 
+/// 心愿状态, 和云端/数据库保持同一套大写字符串
+class WishStatus {
+  static const String realized = 'REALIZED';
+  static const String unrealized = 'UNREALIZED';
+
+  /// 是否已实现
+  static bool isRealized(String status) => status == realized;
+
+  /// 在已实现和未实现之间切换
+  static String toggle(String status) => isRealized(status) ? unrealized : realized;
+}
+
 /// 心愿分类(纯本地扩展, 云端视为其他)
 enum WishCategory {
   study('学习成长', Icons.menu_book, Colors.blue),
@@ -143,7 +155,7 @@ class WishModel {
       serverId: json['id'] as int?, // 云端ID
       content: json['content'] as String,
       visibility: WishVisibility.fromString(json['visibility'] ?? 'PRIVATE'),
-      status: json['status'] ?? 'UNREALIZED',
+      status: json['status'] ?? WishStatus.unrealized,
       storageMode: mode,
       // 云端返回的时间戳是字符串格式, 需要解析成DateTime再转成毫秒数
       createdAt: DateTime.parse(json['createdAt'] as String).millisecondsSinceEpoch,

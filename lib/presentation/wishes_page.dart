@@ -144,9 +144,12 @@ class _MyWishesView extends StatelessWidget {
   Widget _buildStatusFilter(WishListModel model) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-      child: WishStatusFilter(
-        selectedStatus: model.selectedStatus,
-        onChanged: model.setStatus,
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: WishStatusFilter(
+          selectedStatus: model.selectedStatus,
+          onChanged: model.setStatus,
+        ),
       ),
     );
   }
@@ -199,15 +202,15 @@ class _MyWishesView extends StatelessWidget {
             // 卡片菜单里直接切换状态
             onChangeStatus: () async {
               final repo = WishRepository();
-              final nextStatus = wish.status == 'REALIZED' ? 'UNREALIZED' : 'REALIZED';
+              final nextStatus = WishStatus.toggle(wish.status);
               final updated = wish.copyWith(status: nextStatus);
               await repo.updateWishLocal(updated);
               if (context.mounted) {
-                context.showSnack(nextStatus == 'REALIZED' ? '心愿实现啦~' : '已标记为未实现');
+                context.showSnack(WishStatus.isRealized(nextStatus) ? '心愿实现啦~' : '已标记为未实现');
                 model.loadLocalData(currentUsername);
               }
             },
-            // 删除前先确认, 本地走墓碑删除
+            // 删除前先确认, 没上过云的直接删掉
             onDelete: () async {
               final confirm = await showConfirmDialog(
                 context,
@@ -218,7 +221,7 @@ class _MyWishesView extends StatelessWidget {
 
               if (confirm == true) {
                 final repo = WishRepository();
-                await repo.softDeleteWish(wish.localId!);
+                await repo.deleteWish(wish.localId!);
                 if (context.mounted) {
                   context.showSnack('心愿已删除');
                   model.loadLocalData(currentUsername);

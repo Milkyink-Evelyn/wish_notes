@@ -4,9 +4,12 @@ import '../utils/db_utils.dart';
 import '../models/wish_model.dart';
 
 class WishRepository {
-  final WishApi _api = WishApi();
+  final WishApi _api;
+
+  WishRepository({WishApi? api}) : _api = api ?? WishApi();
 
   /// 获取本地所有心愿(不包含软删除)
+  /// ownerUsername 为空时返回本机全部账号和游客的数据, 游客视角就是这样看的
   Future<List<WishModel>> getMyWishes({String? ownerUsername}) async {
     final db = DBUtils.db;
     String where = '${WishTable.colIsDeleted} = 0 AND ${WishTable.colIsPublicCache} = 0';
@@ -70,6 +73,9 @@ class WishRepository {
         updateMap[WishTable.colLocalId] = localWish.localId;
         updateMap[WishTable.colCategory] = localWish.category.name;
         updateMap[WishTable.colIsPublicCache] = isMine ? 0 : 1;
+        // 自己的心愿从广场缓存转正, 本地没有正本, 按云端专属处理
+        updateMap[WishTable.colStorageMode] =
+            isMine ? StorageMode.cloud.value : localWish.storageMode.value;
         await db.update(
           WishTable.name,
           updateMap,
@@ -80,6 +86,8 @@ class WishRepository {
         final insertMap = cloudWish.toMap();
         insertMap.remove(WishTable.colLocalId);
         insertMap[WishTable.colIsPublicCache] = isMine ? 0 : 1;
+        // 自己的公开心愿第一次在广场里碰到, 本地同样没有正本
+        if (isMine) insertMap[WishTable.colStorageMode] = StorageMode.cloud.value;
         await db.insert(WishTable.name, insertMap);
       }
     }
@@ -112,10 +120,28 @@ class WishRepository {
     );
   }
 
-  /// 墓碑软删除(本地)
-  Future<void> softDeleteWish(int localId) async {
+  /// 删除心愿: 没上过云的直接物理删除, 上过云的打墓碑等同步
+  Future<void> deleteWish(int localId) async {
     final db = DBUtils.db;
-    
+
+    final maps = await db.query(
+      WishTable.name,
+      columns: [WishTable.colServerId],
+      where: '${WishTable.colLocalId} = ?',
+      whereArgs: [localId],
+      limit: 1,
+    );
+    if (maps.isEmpty) return;
+
+    if (maps.first[WishTable.colServerId] == null) { // 云端没有副本, 墓碑永远同步不掉
+      await db.delete(
+        WishTable.name,
+        where: '${WishTable.colLocalId} = ?',
+        whereArgs: [localId],
+      );
+      return;
+    }
+
     await db.update(
       WishTable.name,
       {WishTable.colIsDeleted: 1},
@@ -131,7 +157,7 @@ class WishRepository {
     final Set<int> cloudServerIds = {}; // 清理僵尸数据用
 
     for (var json in cloudList) {
-      var cloudWish = WishModel.fromJson(json, StorageMode.smart);
+      var cloudWish = WishModel.fromJson(json, StorageMode.cloud);
       // /wishes/me 只返回当前用户的数据, 后端漏了用户名就直接补上
       if (cloudWish.ownerUsername == null) {
         cloudWish = cloudWish.copyWith(ownerUsername: currentUsername);
@@ -164,6 +190,18 @@ class WishRepository {
           updateMap[WishTable.colLocalId] = localWish.localId;
           updateMap[WishTable.colCategory] = localWish.category.name;
           updateMap[WishTable.colIsPublicCache] = 0;
+          // 本地之前只有缓存, 没有正本, 按云端专属处理
+          updateMap[WishTable.colStorageMode] = StorageMode.cloud.value;
+          await db.update(
+            WishTable.name,
+            updateMap,
+            where: '${WishTable.colLocalId} = ?',
+            whereArgs: [localWish.localId],
+          );
+        } else if (localWish.storageMode == StorageMode.cloud) { // 云端存储以服务器为准
+          final updateMap = cloudWish.toMap();
+          updateMap[WishTable.colLocalId] = localWish.localId;
+          updateMap[WishTable.colCategory] = localWish.category.name; // 后端没有分类字段, 保留本地的
           await db.update(
             WishTable.name,
             updateMap,
@@ -173,7 +211,8 @@ class WishRepository {
         } else if (localWish.visibility == WishVisibility.public) { // 公开心愿智能存储同步以服务器为主
           final updateMap = cloudWish.toMap();
           updateMap[WishTable.colLocalId] = localWish.localId;
-          updateMap[WishTable.colIsDeleted] = localWish.isDeleted ? 1 : 0;
+          updateMap[WishTable.colCategory] = localWish.category.name; // 后端没有分类字段, 保留本地的
+          updateMap[WishTable.colStorageMode] = localWish.storageMode.value; // 别把本地的存储模式冲掉
           await db.update(
             WishTable.name,
             updateMap,
@@ -181,7 +220,7 @@ class WishRepository {
             whereArgs: [localWish.localId],
           );
         }// 私有心愿智能存储同步以本地为主, 不作修改
-      } else {  // 本地数据缺失/丢失,用云端数据恢复
+      } else {  // 本地数据缺失/丢失,用云端数据恢复, 本地没正本, 记成云端专属
         final insertMap = cloudWish.toMap();
         insertMap.remove(WishTable.colLocalId);
         await db.insert(WishTable.name, insertMap);
@@ -268,15 +307,6 @@ class WishRepository {
         debugPrint('推送新建心愿失败 localId=${localWish.localId}: $e');
       }
     }
-  }
-
-  /// 把单条本地心愿补传到云端, 返回带 serverId 的新对象
-  Future<WishModel> pushNewWish(WishModel wish) async {
-    final cloudData = await _api.createWish(wish.content, wish.visibility.value);
-    final synced = wish.copyWith(serverId: cloudData['id'] as int);
-
-    await updateWishLocal(synced);
-    return synced;
   }
 
   /// 将本地已修改状态的心愿推送到云端
@@ -418,6 +448,24 @@ class WishRepository {
         AND ${WishTable.colIsPublicCache} = 0
         AND ${WishTable.colIsDeleted} = 0
       ''',
+    );
+  }
+
+  /// 退出登录时清掉只存在云端的心愿(公开和私有)
+  /// 这类数据本地只是副本, 重新登录还能从云端拉回来
+  /// 广场缓存和墓碑不动, 前者还要继续给广场用, 后者留给下次同步删除云端
+  /// 还没上传成功的(serverId 为空)也不动, 否则会丢数据
+  Future<void> clearCloudWishes() async {
+    final db = DBUtils.db;
+    await db.delete(
+      WishTable.name,
+      where: '''
+        ${WishTable.colServerId} IS NOT NULL
+        AND ${WishTable.colStorageMode} = ?
+        AND ${WishTable.colIsPublicCache} = 0
+        AND ${WishTable.colIsDeleted} = 0
+      ''',
+      whereArgs: [StorageMode.cloud.value],
     );
   }
 

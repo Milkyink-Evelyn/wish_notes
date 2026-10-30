@@ -24,7 +24,7 @@ class WishCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isRealized = wish.status == 'REALIZED';
+    final isRealized = WishStatus.isRealized(wish.status);
     // 公开的云端心愿可能没有作者, 不能当成本地游客
     final isAnonymous = wish.ownerUsername == null &&
         wish.visibility == WishVisibility.public &&

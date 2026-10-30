@@ -34,7 +34,7 @@ abstract class WishTable {
 /// DB工具类
 class DBUtils {
   DBUtils._();
-  static late final Database _db;
+  static late Database _db;
 
   /// 在应用启动时初始化数据库
   static Future<void> init() async {
@@ -44,24 +44,7 @@ class DBUtils {
     _db = await openDatabase(
       path,
       version: 3,
-      onCreate: (db, version) async {
-        await db.execute('''
-          CREATE TABLE ${WishTable.name} (
-            ${WishTable.colLocalId} INTEGER PRIMARY KEY AUTOINCREMENT,
-            ${WishTable.colServerId} INTEGER,
-            ${WishTable.colContent} TEXT NOT NULL,
-            ${WishTable.colVisibility} TEXT NOT NULL,
-            ${WishTable.colStatus} TEXT NOT NULL,
-            ${WishTable.colStorageMode} TEXT NOT NULL,
-            ${WishTable.colCreatedAt} INTEGER NOT NULL,
-            ${WishTable.colIsDeleted} INTEGER NOT NULL DEFAULT 0,
-            ${WishTable.colCategory} TEXT,
-            ${WishTable.colComments} TEXT,
-            ${WishTable.colOwnerUsername} TEXT,
-            ${WishTable.colIsPublicCache} INTEGER NOT NULL DEFAULT 0
-          )
-        ''');
-      },
+      onCreate: (db, version) => createTables(db),
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
           await db.execute(
@@ -75,6 +58,31 @@ class DBUtils {
         }
       },
     );
+  }
+
+  /// 建表语句, 生产和测试共用
+  static Future<void> createTables(Database db) async {
+    await db.execute('''
+      CREATE TABLE ${WishTable.name} (
+        ${WishTable.colLocalId} INTEGER PRIMARY KEY AUTOINCREMENT,
+        ${WishTable.colServerId} INTEGER,
+        ${WishTable.colContent} TEXT NOT NULL,
+        ${WishTable.colVisibility} TEXT NOT NULL,
+        ${WishTable.colStatus} TEXT NOT NULL,
+        ${WishTable.colStorageMode} TEXT NOT NULL,
+        ${WishTable.colCreatedAt} INTEGER NOT NULL,
+        ${WishTable.colIsDeleted} INTEGER NOT NULL DEFAULT 0,
+        ${WishTable.colCategory} TEXT,
+        ${WishTable.colComments} TEXT,
+        ${WishTable.colOwnerUsername} TEXT,
+        ${WishTable.colIsPublicCache} INTEGER NOT NULL DEFAULT 0
+      )
+    ''');
+  }
+
+  /// 测试用: 注入一个内存数据库, 避免碰真实数据
+  static void useTestDatabase(Database db) {
+    _db = db;
   }
 
   static Database get db => _db;

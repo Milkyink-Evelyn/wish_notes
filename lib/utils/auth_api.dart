@@ -1,3 +1,4 @@
+import 'api_response.dart';
 import 'http.dart';
 
 /// AuthApi类用于处理与身份验证相关的API请求
@@ -14,12 +15,7 @@ class AuthApi {
         'password': password,
       });
 
-      final data = response.data;
-      if (data['success'] == true && data['data'] != null) {
-        return data['data'];
-      } else {
-        throw Exception('登录失败: ${data['message'] ?? '未知错误'}');
-      }
+      return unwrapMap(response, fallbackMessage: '未知错误', prefix: '登录失败: ');
     } catch (e) {
       rethrow; // 将异常抛出给UI层处理
     }
@@ -37,12 +33,7 @@ class AuthApi {
         if (nickname.isNotEmpty) 'nickname': nickname,
       });
 
-      final data = response.data;
-      if (data['success'] == true && data['data'] != null) {
-        return data['data'];
-      } else {
-        throw Exception('注册失败: ${data['message'] ?? '未知错误'}');
-      }
+      return unwrapMap(response, fallbackMessage: '未知错误', prefix: '注册失败: ');
     } catch (e) {
       rethrow; // 将异常抛出给UI层处理
     }

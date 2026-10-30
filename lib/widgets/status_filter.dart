@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../models/wish_model.dart';
 
 /// 心愿状态筛选条: 全部 / 未实现 / 已实现
 class WishStatusFilter extends StatelessWidget {
@@ -32,8 +33,8 @@ class WishStatusFilter extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         _buildChip(null, '全部'),
-        _buildChip('UNREALIZED', '未实现'),
-        _buildChip('REALIZED', '已实现'),
+        _buildChip(WishStatus.unrealized, '未实现'),
+        _buildChip(WishStatus.realized, '已实现'),
       ],
     );
   }

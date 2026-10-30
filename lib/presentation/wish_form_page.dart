@@ -24,7 +24,8 @@ class _WishFormPageState extends State<WishFormPage> {
 
   bool get _isEditing => widget.initialWish != null;
 
-  Future<void> _changeVisibility(WishVisibility next, bool isLoggedIn) async {
+  /// 切换可见性, 本地存储不允许公开
+  void _changeVisibility(WishVisibility next, bool isLoggedIn) {
     if (next == _selectedVisibility) return;
 
     if (next == WishVisibility.public) {
@@ -33,18 +34,8 @@ class _WishFormPageState extends State<WishFormPage> {
         return;
       }
 
-      // 纯本地存储不能公开, 先让用户选择转换方式
       if (_selectedMode == StorageMode.local) {
-        final mode = await _pickStorageMode();
-        if (mode == null || !mounted) return;
-
-        setState(() {
-          _selectedMode = mode;
-          _selectedVisibility = WishVisibility.public;
-        });
-        context.showSnack(mode == StorageMode.cloud
-            ? '已转为云端存储, 保存后会同步到云端'
-            : '已转为智能存储, 保存后会同步到云端');
+        context.showSnack('本地存储不能设为公开, 请先切换存储模式');
         return;
       }
     }
@@ -52,28 +43,56 @@ class _WishFormPageState extends State<WishFormPage> {
     setState(() => _selectedVisibility = next);
   }
 
-  Future<StorageMode?> _pickStorageMode() {
-    return showDialog<StorageMode>(
+  /// 存储模式的中文名
+  String _modeLabel(StorageMode mode) {
+    if (mode == StorageMode.local) return '本地';
+    if (mode == StorageMode.cloud) return '云端';
+    return '智能';
+  }
+
+  /// 选存储模式时先提醒: 创建后不能改
+  Future<void> _changeStorageMode(StorageMode next) async {
+    if (next == _selectedMode) return;
+
+    final label = _modeLabel(next);
+    final desc = next == StorageMode.local
+        ? '只保存在这台手机, 不上传云端。'
+        : next == StorageMode.cloud
+            ? '以服务器为准, 换设备登录也能看到。'
+            : '本地和云端各存一份, 本地优先。';
+
+    final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('需要转换存储方式'),
-        content: const Text('纯本地存储的心愿不会上传到服务器, 无法直接公开。\n\n要把它转换为云端或智能存储吗？也可以先保持私有。'),
+        title: const Text('确认存储模式'),
+        content: Text('$desc\n\n存储模式创建后不能修改, 本地存储不能设为公开。\n\n确定使用“$label”存储吗？'),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('保持私有'),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('再想想'),
           ),
           TextButton(
-            onPressed: () => Navigator.pop(ctx, StorageMode.cloud),
-            child: const Text('转为云端'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, StorageMode.smart),
-            child: const Text('转为智能'),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('确定'),
           ),
         ],
       ),
     );
+
+    if (confirm != true || !mounted) return;
+
+    final wasPublic = _selectedVisibility == WishVisibility.public;
+    setState(() {
+      _selectedMode = next;
+      // 纯本地不支持公开
+      if (next == StorageMode.local && wasPublic) {
+        _selectedVisibility = WishVisibility.private;
+      }
+    });
+
+    if (next == StorageMode.local && wasPublic) {
+      context.showSnack('本地存储不能公开, 已自动切为私有');
+    }
   }
 
   @override
@@ -86,6 +105,11 @@ class _WishFormPageState extends State<WishFormPage> {
       _selectedCategory = wish.category;
       _selectedVisibility = wish.visibility;
       _selectedMode = wish.storageMode;
+
+      // 旧版本可能留下纯本地+公开的脏数据, 打开编辑时按规则纠正
+      if (wish.storageMode == StorageMode.local && wish.visibility == WishVisibility.public) {
+        _selectedVisibility = WishVisibility.private;
+      }
     }
   }
 
@@ -107,7 +131,7 @@ class _WishFormPageState extends State<WishFormPage> {
 
     // 兜底: 公开心愿不能留在纯本地存储里
     if (_selectedVisibility == WishVisibility.public && _selectedMode == StorageMode.local) {
-      context.showSnack('公开心愿不能使用纯本地存储, 请先转换为云端或智能存储');
+      context.showSnack('本地存储不能设为公开, 请先切换存储模式');
       return;
     }
 
@@ -118,28 +142,13 @@ class _WishFormPageState extends State<WishFormPage> {
 
       if (_isEditing) {
         final original = widget.initialWish!;
-        var updated = original.copyWith(
+        final updated = original.copyWith(
           content: content,
           visibility: _selectedVisibility,
           category: _selectedCategory,
           storageMode: _selectedMode,
         );
         await repo.updateWishLocal(updated);
-
-        // 本地私有转公开时, 顺手补传一次云端, 拿到 serverId
-        final needUpload = original.serverId == null
-            && original.storageMode == StorageMode.local
-            && _selectedMode != StorageMode.local
-            && _selectedVisibility == WishVisibility.public
-            && auth.isLoggedIn;
-        if (needUpload) {
-          try {
-            updated = await repo.pushNewWish(updated);
-          } catch (e) {
-            debugPrint('转换后上传云端失败: $e');
-            if (mounted) context.showSnack('已保存到本地, 联网后会自动同步到云端');
-          }
-        }
 
         if (!mounted) return;
         debugPrint('--- 准备返回编辑结果 ---');
@@ -150,7 +159,7 @@ class _WishFormPageState extends State<WishFormPage> {
       final newWish = WishModel(
         content: content,
         visibility: _selectedVisibility,
-        status: 'UNREALIZED',
+        status: WishStatus.unrealized,
         storageMode: _selectedMode,
         createdAt: DateTime.now().millisecondsSinceEpoch,
         isDeleted: false,
@@ -241,8 +250,8 @@ class _WishFormPageState extends State<WishFormPage> {
             ],
           ),
 
-          // 存储模式选择(编辑时锁定, 避免把已有云端数据切成纯本地)
-          if (!_isEditing)
+          // 存储模式只在创建时可选, 选完就不能改了
+          if (!_isEditing) ...[
             Row(
               children: [
                 const Text('存储模式：'),
@@ -256,18 +265,28 @@ class _WishFormPageState extends State<WishFormPage> {
                     ],
                     selected: {_selectedMode},
                     onSelectionChanged: (Set<StorageMode> newSelection) {
-                      setState(() {
-                        _selectedMode = newSelection.first;
-                        // 规则：纯本地不支持公开
-                        if (_selectedMode == StorageMode.local && _selectedVisibility == WishVisibility.public) {
-                          _selectedVisibility = WishVisibility.private;
-                          context.showSnack('公开心愿不能纯本地存储,已自动切为私有');
-                        }
-                      });
+                      _changeStorageMode(newSelection.first);
                     },
                   ),
                 ),
               ],
+            ),
+            const Padding(
+              padding: EdgeInsets.only(top: 6),
+              child: Text(
+                '存储模式创建后不能修改, 本地存储不能设为公开',
+                style: TextStyle(fontSize: 12, color: Colors.black54),
+              ),
+            ),
+          ],
+          // 编辑时只展示, 不能再改
+          if (_isEditing)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Text(
+                '存储模式：${_modeLabel(_selectedMode)}（创建后不可修改）',
+                style: const TextStyle(fontSize: 12, color: Colors.black54),
+              ),
             ),
           Container(
             decoration: BoxDecoration(
