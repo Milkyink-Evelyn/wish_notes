@@ -247,7 +247,11 @@ class _WishDetailPageState extends State<WishDetailPage> {
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthModel>();
-    final isOwner = _wish.ownerUsername == auth.username;
+    // 智能存储的私有心愿退出登录后还留在本地, 没登录也要能改
+    final offlineEditable = !auth.isLoggedIn &&
+        _wish.storageMode == StorageMode.smart &&
+        _wish.visibility == WishVisibility.private;
+    final isOwner = _wish.ownerUsername == auth.username || offlineEditable;
     final isRealized = WishStatus.isRealized(_wish.status);
 
     return Scaffold(

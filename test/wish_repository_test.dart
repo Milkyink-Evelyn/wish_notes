@@ -445,6 +445,47 @@ void main() {
       expect(await db.query(WishTable.name), isEmpty);
     });
 
+    test('新拉下来的云端心愿可以改成智能存储, 退出时保留', () async {
+      final api = FakeWishApi()
+        ..myWishes = [
+          {
+            'id': 60,
+            'content': 'cloud only 1',
+            'visibility': 'PRIVATE',
+            'status': 'UNREALIZED',
+            'createdAt': '2026-10-30T10:00:00.000Z',
+            'username': 'alice',
+            'comments': [],
+          },
+          {
+            'id': 61,
+            'content': 'cloud only 2',
+            'visibility': 'PRIVATE',
+            'status': 'UNREALIZED',
+            'createdAt': '2026-10-30T09:00:00.000Z',
+            'username': 'alice',
+            'comments': [],
+          },
+        ];
+
+      final pullRepo = WishRepository(api: api);
+      final newWishes = await pullRepo.pullMyWishes('alice');
+
+      expect(newWishes.length, 2);
+      expect(newWishes.every((w) => w.localId != null), isTrue);
+      expect(newWishes.every((w) => w.storageMode == StorageMode.cloud), isTrue);
+
+      // 只把其中一条改成智能, 另一条保持云端
+      final smartId = newWishes.first.localId!;
+      await pullRepo.updateWishStorageMode([smartId], StorageMode.smart);
+
+      await pullRepo.clearCloudWishes();
+
+      final remaining = (await db.query(WishTable.name)).single;
+      expect(remaining[WishTable.colLocalId], smartId);
+      expect(remaining[WishTable.colStorageMode], StorageMode.smart.value);
+    });
+
     test('云端存储的公开心愿拉取后仍保持云端存储', () async {
       await repo.insertWish(buildWish(
         content: 'old content',

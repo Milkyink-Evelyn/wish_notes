@@ -7,6 +7,7 @@ import '../models/wish_model.dart';
 import '../repositories/wish_repository.dart';
 import '../utils/dialog_utils.dart';
 import '../utils/toast_utils.dart';
+import '../widgets/cloud_wish_picker.dart';
 import '../widgets/custom_popup_menu.dart';
 import '../widgets/status_filter.dart';
 import '../widgets/wish_card.dart';
@@ -85,8 +86,8 @@ class _MyWishesView extends StatelessWidget {
             // 4. 列表或空状态
             Expanded(
               child: model.displayWishes.isEmpty
-                  ? _buildEmptyState(model, currentUsername)
-                  : _buildWishList(model, currentUsername),
+                  ? _buildEmptyState(context, model, currentUsername)
+                  : _buildWishList(context, model, currentUsername),
             ),
           ],
         );
@@ -155,10 +156,14 @@ class _MyWishesView extends StatelessWidget {
   }
 
   // 空状态视图: 区分"筛选没结果"和"一条心愿都没有"
-  Widget _buildEmptyState(WishListModel model, String? currentUsername) {
+  Widget _buildEmptyState(
+    BuildContext context,
+    WishListModel model,
+    String? currentUsername,
+  ) {
     final isFiltering = model.selectedCategory != null || model.selectedStatus != null;
     return RefreshIndicator(
-      onRefresh: () => model.syncAndRefresh(currentUsername),
+      onRefresh: () => _syncAndPickStorage(context, model, currentUsername),
       child: ListView(
         physics: const AlwaysScrollableScrollPhysics(),
         children: [
@@ -176,10 +181,36 @@ class _MyWishesView extends StatelessWidget {
     );
   }
 
+  // 下拉同步, 新拉下来的云端心愿交给用户选存储方式
+  Future<void> _syncAndPickStorage(
+    BuildContext context,
+    WishListModel model,
+    String? currentUsername,
+  ) async {
+    final newWishes = await model.syncAndRefresh(currentUsername);
+    if (!context.mounted || newWishes.isEmpty) return;
+
+    final selection = await showCloudWishPicker(context, newWishes);
+    if (selection == null || !context.mounted) return;
+
+    await WishRepository().updateWishStorageMode(selection.localIds, selection.mode);
+    if (!context.mounted) return;
+
+    await model.loadLocalData(currentUsername);
+    if (!context.mounted) return;
+    context.showSnack(
+      selection.mode == StorageMode.cloud ? '已保存为云端存储' : '已保存为智能存储',
+    );
+  }
+
   // 数据列表视图
-  Widget _buildWishList(WishListModel model, String? currentUsername) {
+  Widget _buildWishList(
+    BuildContext context,
+    WishListModel model,
+    String? currentUsername,
+  ) {
     return RefreshIndicator(
-      onRefresh: () => model.syncAndRefresh(currentUsername),
+      onRefresh: () => _syncAndPickStorage(context, model, currentUsername),
       child: ListView.builder(
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),

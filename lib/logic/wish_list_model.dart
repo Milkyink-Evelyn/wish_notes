@@ -83,12 +83,14 @@ class WishListModel extends ChangeNotifier {
   }
 
   /// 下拉刷新: 触发云端同步,然后再加载本地数据
-  Future<void> syncAndRefresh(String? username) async {
+  /// 返回这次从云端新拉到本地的心愿, 页面用它询问存储方式
+  Future<List<WishModel>> syncAndRefresh(String? username) async {
     final token = SPUtils.getString(SPKey.token);
+    var newWishes = <WishModel>[];
     try {
       if (token != null && token.isNotEmpty) {
         // 已登录：执行完整的云端同步流程
-        await _repo.syncAll(username);
+        newWishes = await _repo.syncAll(username);
       } else {
         // 未登录：只重新加载本地数据,不请求网络
         debugPrint('未登录,仅刷新本地');
@@ -99,5 +101,6 @@ class WishListModel extends ChangeNotifier {
       _wishes = await _repo.getMyWishes(ownerUsername: username);
       notifyListeners();
     }
+    return newWishes;
   }
 }

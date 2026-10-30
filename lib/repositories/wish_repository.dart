@@ -152,10 +152,12 @@ class WishRepository {
   }
 
   /// 从云端拉取我的心愿,并合并到本地(智能模式同步数据)
-  Future<void> pullMyWishes(String currentUsername) async {
+  /// 返回本地原本没有、这次新插入的心愿, 交给界面选择存储方式
+  Future<List<WishModel>> pullMyWishes(String currentUsername) async {
     final db = DBUtils.db;
     final cloudList = await _api.fetchMyWishes();
     final Set<int> cloudServerIds = {}; // 清理僵尸数据用
+    final List<WishModel> newWishes = []; // 本地缺失, 这次新拉下来的
 
     for (var json in cloudList) {
       var cloudWish = WishModel.fromJson(json, StorageMode.cloud);
@@ -214,10 +216,14 @@ class WishRepository {
             whereArgs: [localWish.localId],
           );
         }
-      } else {  // 本地数据缺失/丢失,用云端数据恢复, 本地没正本, 记成云端专属
+      } else {  // 本地数据缺失/丢失,用云端数据恢复, 本地没正本, 默认按云端专属处理
         final insertMap = cloudWish.toMap();
         insertMap.remove(WishTable.colLocalId);
-        await db.insert(WishTable.name, insertMap);
+        final localId = await db.insert(WishTable.name, insertMap);
+        newWishes.add(WishModel.fromMap({
+          ...insertMap,
+          WishTable.colLocalId: localId,
+        }));
       }
     }
 
@@ -238,6 +244,8 @@ class WishRepository {
         );
       }
     }
+
+    return newWishes;
   }
 
   /// 合并云端数据: 本地有未同步修改的字段保留本地, 其余字段接受云端
@@ -427,10 +435,11 @@ class WishRepository {
   }
 
   /// 完整的云端同步流程
-  Future<void> syncAll(String? currentUsername) async {
+  /// 返回这次从云端新拉到本地的心愿
+  Future<List<WishModel>> syncAll(String? currentUsername) async {
     if (currentUsername == null || currentUsername.isEmpty) {
       debugPrint('未登录, 跳过云端同步');
-      return;
+      return const [];
     }
     
     try {
@@ -447,9 +456,10 @@ class WishRepository {
       await pushUpdatedStatus(currentUsername);
       
       // 4. 拉取合并(最后拉取,获取云端最新数据)
-      await pullMyWishes(currentUsername);
+      final newWishes = await pullMyWishes(currentUsername);
       
       debugPrint('--- 同步完成 ---');
+      return newWishes;
     } catch (e) {
       debugPrint('同步过程中发生错误: $e');
       rethrow; // 抛给 UI 层去弹窗提示
@@ -497,6 +507,23 @@ class WishRepository {
       where: '${WishTable.colLocalId} = ?',
       whereArgs: [wish.localId],
     );
+  }
+
+  /// 修改本地心愿的存储模式(只改本地, 不参与云端同步)
+  Future<void> updateWishStorageMode(List<int> localIds, StorageMode mode) async {
+    if (localIds.isEmpty) return;
+    final db = DBUtils.db;
+
+    for (final localId in localIds) {
+      await db.update(
+        WishTable.name,
+        {WishTable.colStorageMode: mode.value},
+        where: '${WishTable.colLocalId} = ?',
+        whereArgs: [localId],
+      );
+    }
+
+    debugPrint('修改存储模式 ${mode.value}, 共 ${localIds.length} 条');
   }
 
   /// 只更新评论, 不动脏标记
