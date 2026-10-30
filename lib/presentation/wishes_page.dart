@@ -11,6 +11,7 @@ import '../widgets/cloud_wish_picker.dart';
 import '../widgets/custom_popup_menu.dart';
 import '../widgets/status_filter.dart';
 import '../widgets/wish_card.dart';
+import '../widgets/wish_layout_menu.dart';
 import 'wish_detail_page.dart';
 
 /// 心愿广场排序方式
@@ -57,8 +58,15 @@ class WishesPage extends StatelessWidget {
   }
 }
 
-class _MyWishesView extends StatelessWidget {
+class _MyWishesView extends StatefulWidget {
   const _MyWishesView();
+
+  @override
+  State<_MyWishesView> createState() => _MyWishesViewState();
+}
+
+class _MyWishesViewState extends State<_MyWishesView> {
+  bool _twoColumns = false; // 默认单列
 
   @override
   Widget build(BuildContext context) {
@@ -141,16 +149,31 @@ class _MyWishesView extends StatelessWidget {
     );
   }
 
-  /// 顶部状态筛选栏
+  /// 顶部状态筛选栏, 右侧放单列/双列切换
   Widget _buildStatusFilter(WishListModel model) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-      child: Align(
-        alignment: Alignment.centerLeft,
-        child: WishStatusFilter(
-          selectedStatus: model.selectedStatus,
-          onChanged: model.setStatus,
-        ),
+      child: Row(
+        children: [
+          // 状态筛选按可用宽度自适应缩放, 不做横向滚动
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: WishStatusFilter(
+                  selectedStatus: model.selectedStatus,
+                  onChanged: model.setStatus,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          WishLayoutMenu(
+            twoColumns: _twoColumns,
+            onChanged: (value) => setState(() => _twoColumns = value),
+          ),
+        ],
       ),
     );
   }
@@ -203,7 +226,7 @@ class _MyWishesView extends StatelessWidget {
     );
   }
 
-  // 数据列表视图
+  // 数据列表视图, 按单列或双列展示
   Widget _buildWishList(
     BuildContext context,
     WishListModel model,
@@ -211,57 +234,112 @@ class _MyWishesView extends StatelessWidget {
   ) {
     return RefreshIndicator(
       onRefresh: () => _syncAndPickStorage(context, model, currentUsername),
-      child: ListView.builder(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
-        itemCount: model.displayWishes.length + 1, 
-        itemBuilder: (context, index) {
-          if (index == model.displayWishes.length) {
-            return const _ListFooter();
-          }
-          final wish = model.displayWishes[index];
-          
-          return WishCard(
-            wish: wish,
-            onTap: () async {
-              await Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => WishDetailPage(wish: wish)),
-              );
-              if (context.mounted) model.loadLocalData(currentUsername);
-            },
-            // 卡片菜单里直接切换状态
-            onChangeStatus: () async {
-              final repo = WishRepository();
-              final nextStatus = WishStatus.toggle(wish.status);
-              final updated = wish.copyWith(status: nextStatus);
-              await repo.updateWishStatus(updated);
-              if (context.mounted) {
-                context.showSnack(WishStatus.isRealized(nextStatus) ? '心愿实现啦~' : '已标记为未实现');
-                model.loadLocalData(currentUsername);
-              }
-            },
-            // 删除前先确认, 没上过云的直接删掉
-            onDelete: () async {
-              final confirm = await showConfirmDialog(
-                context,
-                title: '删除心愿',
-                content: '确定要删除这个心愿吗？',
-                confirmText: '删除',
-              );
-
-              if (confirm == true) {
-                final repo = WishRepository();
-                await repo.deleteWish(wish.localId!);
-                if (context.mounted) {
-                  context.showSnack('心愿已删除');
-                  model.loadLocalData(currentUsername);
+      child: _twoColumns
+          ? _buildWishGrid(context, model, currentUsername)
+          : ListView.builder(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
+              itemCount: model.displayWishes.length + 1,
+              itemBuilder: (context, index) {
+                if (index == model.displayWishes.length) {
+                  return const _ListFooter();
                 }
-              }
-            },
-          );
-        },
-      ),
+                return _buildCard(
+                  context,
+                  model,
+                  currentUsername,
+                  model.displayWishes[index],
+                  compact: false,
+                );
+              },
+            ),
+    );
+  }
+
+  // 双列网格, 每张卡片固定宽高
+  Widget _buildWishGrid(
+    BuildContext context,
+    WishListModel model,
+    String? currentUsername,
+  ) {
+    return CustomScrollView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      slivers: [
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+          sliver: SliverGrid(
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              crossAxisSpacing: 12,
+              mainAxisSpacing: 16,
+              mainAxisExtent: 190,
+            ),
+            delegate: SliverChildBuilderDelegate(
+              (context, index) => _buildCard(
+                context,
+                model,
+                currentUsername,
+                model.displayWishes[index],
+                compact: true,
+              ),
+              childCount: model.displayWishes.length,
+            ),
+          ),
+        ),
+        const SliverToBoxAdapter(child: _ListFooter()),
+        // 底部导航栏悬浮在内容上方, 留出空间
+        const SliverToBoxAdapter(child: SizedBox(height: 80)),
+      ],
+    );
+  }
+
+  // 单列和双列共用同一张卡片, 只是紧凑程度不同
+  Widget _buildCard(
+    BuildContext context,
+    WishListModel model,
+    String? currentUsername,
+    WishModel wish, {
+    required bool compact,
+  }) {
+    return WishCard(
+      wish: wish,
+      compact: compact,
+      onTap: () async {
+        await Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => WishDetailPage(wish: wish)),
+        );
+        if (context.mounted) model.loadLocalData(currentUsername);
+      },
+      // 卡片菜单里直接切换状态
+      onChangeStatus: () async {
+        final repo = WishRepository();
+        final nextStatus = WishStatus.toggle(wish.status);
+        final updated = wish.copyWith(status: nextStatus);
+        await repo.updateWishStatus(updated);
+        if (context.mounted) {
+          context.showSnack(WishStatus.isRealized(nextStatus) ? '心愿实现啦~' : '已标记为未实现');
+          model.loadLocalData(currentUsername);
+        }
+      },
+      // 删除前先确认, 没上过云的直接删掉
+      onDelete: () async {
+        final confirm = await showConfirmDialog(
+          context,
+          title: '删除心愿',
+          content: '确定要删除这个心愿吗？',
+          confirmText: '删除',
+        );
+
+        if (confirm == true) {
+          final repo = WishRepository();
+          await repo.deleteWish(wish.localId!);
+          if (context.mounted) {
+            context.showSnack('心愿已删除');
+            model.loadLocalData(currentUsername);
+          }
+        }
+      },
     );
   }
 
@@ -351,6 +429,7 @@ class _PublicWishesViewState extends State<_PublicWishesView> {
   bool _hasError = false;
   String? _selectedStatus;
   _PublicSortType _sortType = _PublicSortType.time;
+  bool _twoColumns = true; // 默认双列
 
   @override
   void initState() {
@@ -430,50 +509,63 @@ class _PublicWishesViewState extends State<_PublicWishesView> {
     );
   }
 
-  /// 广场顶部筛选栏: 左边状态, 右边排序
+  /// 广场顶部筛选栏: 第一行状态, 第二行布局和排序
   Widget _buildFilterBar() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Expanded(
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
+          // 状态筛选按可用宽度自适应缩放, 不做横向滚动
+          Align(
+            alignment: Alignment.centerLeft,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
               child: WishStatusFilter(
                 selectedStatus: _selectedStatus,
                 onChanged: (status) => setState(() => _selectedStatus = status),
               ),
             ),
           ),
-          const SizedBox(width: 8),
-          CustomPopupMenu<_PublicSortType>(
-            items: _PublicSortType.values.map((type) {
-              return PopupMenuItemData(
-                value: type,
-                label: type.label,
-                textColor: type == _sortType ? Colors.pinkAccent : null,
-              );
-            }).toList(),
-            onSelected: (type) => setState(() => _sortType = type),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: AppTheme.cardColor(context),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.grey.shade200),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              WishLayoutMenu(
+                twoColumns: _twoColumns,
+                onChanged: (value) => setState(() => _twoColumns = value),
               ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.sort, size: 16, color: Colors.grey),
-                  const SizedBox(width: 4),
-                  Text(
-                    _sortType.label,
-                    style: const TextStyle(color: Colors.black87, fontSize: 13),
+              const SizedBox(width: 8),
+              CustomPopupMenu<_PublicSortType>(
+                items: _PublicSortType.values.map((type) {
+                  return PopupMenuItemData(
+                    value: type,
+                    label: type.label,
+                    textColor: type == _sortType ? Colors.pinkAccent : null,
+                  );
+                }).toList(),
+                onSelected: (type) => setState(() => _sortType = type),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: AppTheme.cardColor(context),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.grey.shade200),
                   ),
-                ],
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.sort, size: 16, color: Colors.grey),
+                      const SizedBox(width: 4),
+                      Text(
+                        _sortType.label,
+                        style: const TextStyle(color: Colors.black87, fontSize: 13),
+                      ),
+                    ],
+                  ),
+                ),
               ),
-            ),
+            ],
           ),
         ],
       ),
@@ -550,7 +642,11 @@ class _PublicWishesViewState extends State<_PublicWishesView> {
     );
   }
 
+  // 广场列表, 支持单列/双列
   Widget _buildWishList(List<WishModel> wishes) {
+    if (_twoColumns) {
+      return _buildWishGrid(wishes);
+    }
     return ListView.builder(
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 120),
@@ -573,6 +669,47 @@ class _PublicWishesViewState extends State<_PublicWishesView> {
           },
         );
       },
+    );
+  }
+
+  // 双列网格, 每张卡片固定宽高
+  Widget _buildWishGrid(List<WishModel> wishes) {
+    return CustomScrollView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      slivers: [
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+          sliver: SliverGrid(
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              crossAxisSpacing: 12,
+              mainAxisSpacing: 16,
+              mainAxisExtent: 190,
+            ),
+            delegate: SliverChildBuilderDelegate(
+              (context, index) {
+                final wish = wishes[index];
+                return WishCard(
+                  wish: wish,
+                  compact: true,
+                  showMenu: false,
+                  onTap: () async {
+                    await Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => WishDetailPage(wish: wish)),
+                    );
+                    if (mounted) _loadLocal();
+                  },
+                );
+              },
+              childCount: wishes.length,
+            ),
+          ),
+        ),
+        const SliverToBoxAdapter(child: _ListFooter()),
+        // 底部导航栏悬浮在内容上方, 留出空间
+        const SliverToBoxAdapter(child: SizedBox(height: 80)),
+      ],
     );
   }
 }

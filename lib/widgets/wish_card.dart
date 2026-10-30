@@ -13,6 +13,7 @@ class WishCard extends StatelessWidget {
   final VoidCallback? onDelete;
   final VoidCallback? onTap;
   final bool showMenu;
+  final bool compact; // 广场两列布局用的紧凑样式
   const WishCard({
     super.key,
     required this.wish,
@@ -20,6 +21,7 @@ class WishCard extends StatelessWidget {
     this.onDelete,
     this.onTap,
     this.showMenu = true,
+    this.compact = false,
   });
 
   @override
@@ -35,7 +37,7 @@ class WishCard extends StatelessWidget {
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
       child: Container(
-        margin: const EdgeInsets.only(bottom: 16),
+        margin: compact ? EdgeInsets.zero : const EdgeInsets.only(bottom: 16),
         decoration: BoxDecoration(
           color: AppTheme.cardColor(context),
           borderRadius: BorderRadius.circular(16),
@@ -62,7 +64,7 @@ class WishCard extends StatelessWidget {
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.all(16),
+                padding: EdgeInsets.all(compact ? 12 : 16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -98,33 +100,32 @@ class WishCard extends StatelessWidget {
                           const SizedBox.shrink(),
                       ],
                     ),
-                    const SizedBox(height: 12),
+                    SizedBox(height: compact ? 8 : 12),
 
-                    // 心愿内容
-                    Text(
-                      wish.content,
-                      style: const TextStyle(fontSize: 16, height: 1.4, color: Colors.black87),
-                    ),
-                    const SizedBox(height: 16),
+                    // 心愿内容限制最大行数, 超出部分用省略号
+                    if (compact)
+                      Expanded(
+                        child: Text(
+                          wish.content,
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 14, height: 1.4, color: Colors.black87),
+                        ),
+                      )
+                    else
+                      Text(
+                        wish.content,
+                        maxLines: 4,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 16, height: 1.4, color: Colors.black87),
+                      ),
+                    SizedBox(height: compact ? 8 : 16),
 
                     // 底部时间与评论
-                    Row(
-                      children: [
-                        WishCategoryTag(category: wish.category),
-                        const Spacer(),
-                        // 右侧：评论数与时间
-                        const Icon(Icons.chat_bubble_outline, size: 14, color: Colors.grey),
-                        const SizedBox(width: 4),
-                        Text('${wish.comments.length}', style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                        const SizedBox(width: 12), // 间距
-                        Text(ownerLabel,style: const TextStyle(fontSize: 12, color: Colors.grey),),
-                        const SizedBox(width: 16),
-                        Text(
-                          formatWishTime(wish.createdAt),
-                          style: const TextStyle(fontSize: 12, color: Colors.grey),
-                        ),
-                      ],
-                    ),
+                    if (compact)
+                      _buildCompactFooter(ownerLabel)
+                    else
+                      _buildFooter(ownerLabel),
                   ],
                 ),
               ),
@@ -132,6 +133,62 @@ class WishCard extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+
+  /// 单列卡片的底部: 分类、评论数、作者和时间排成一行
+  Widget _buildFooter(String ownerLabel) {
+    return Row(
+      children: [
+        WishCategoryTag(category: wish.category),
+        const Spacer(),
+        const Icon(Icons.chat_bubble_outline, size: 14, color: Colors.grey),
+        const SizedBox(width: 4),
+        Text('${wish.comments.length}', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+        const SizedBox(width: 12), // 间距
+        Text(ownerLabel, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+        const SizedBox(width: 16),
+        Text(
+          formatWishTime(wish.createdAt),
+          style: const TextStyle(fontSize: 12, color: Colors.grey),
+        ),
+      ],
+    );
+  }
+
+  /// 两列卡片宽度有限, 分类和评论放一行, 作者和时间放下一行
+  Widget _buildCompactFooter(String ownerLabel) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            WishCategoryTag(category: wish.category),
+            const Spacer(),
+            const Icon(Icons.chat_bubble_outline, size: 13, color: Colors.grey),
+            const SizedBox(width: 3),
+            Text('${wish.comments.length}', style: const TextStyle(fontSize: 11, color: Colors.grey)),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                ownerLabel,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 11, color: Colors.grey),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              formatWishTime(wish.createdAt),
+              style: const TextStyle(fontSize: 11, color: Colors.grey),
+            ),
+          ],
+        ),
+      ],
     );
   }
 }
