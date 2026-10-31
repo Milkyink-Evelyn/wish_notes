@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../logic/auth_model.dart';
 import '../models/wish_model.dart';
 import '../repositories/wish_repository.dart';
 import '../utils/dialog_utils.dart';
+import '../utils/error_utils.dart';
 import '../utils/time_utils.dart';
 import '../utils/toast_utils.dart';
 import '../utils/wish_api.dart';
@@ -101,6 +103,7 @@ class _WishDetailPageState extends State<WishDetailPage> {
 
     if (result != null && mounted) {
       setState(() => _wish = result);
+      context.showSnack('修改已保存');
       await _pushWishToCloud();
     }
   }
@@ -122,6 +125,10 @@ class _WishDetailPageState extends State<WishDetailPage> {
       }
     } catch (e) {
       debugPrint('推送心愿修改失败: $e');
+      // 登录失效由主页面统一弹窗, 这里只提示普通的同步失败
+      if (mounted && !isAuthError(e)) {
+        context.showSnack('修改已保存在本机, 云端同步失败, 下次同步会自动重试');
+      }
     }
   }
 
@@ -140,7 +147,17 @@ class _WishDetailPageState extends State<WishDetailPage> {
     if (localId == null) return;
 
     await _repo.deleteWish(localId);
+    // 等云端删完再退出, 失败也保留墓碑, 不能让另一台设备一直看到这条心愿
+    final pushed = await _repo
+        .tryPushDeleted(localId)
+        .timeout(
+          const Duration(seconds: 6),
+          onTimeout: () => CloudPushResult.failed,
+        );
     if (!mounted) return;
+    if (pushed == CloudPushResult.failed) {
+      context.showSnack('云端删除失败, 已在本机删除, 下次同步会自动重试');
+    }
     Navigator.pop(context, true);
   }
 
@@ -179,8 +196,9 @@ class _WishDetailPageState extends State<WishDetailPage> {
       FocusScope.of(context).unfocus();
       context.showSnack('评论成功~');
     } catch (e) {
-      if (mounted) {
-        context.showSnack('评论失败: ${e.toString().replaceAll('Exception: ', '')}');
+      // 登录失效由主页面统一弹窗, 这里不再重复提示
+      if (mounted && !isAuthError(e)) {
+        context.showSnack('评论失败: ${errorMessage(e)}');
       }
     } finally {
       if (mounted) setState(() => _isSending = false);
@@ -231,8 +249,9 @@ class _WishDetailPageState extends State<WishDetailPage> {
       setState(() => _wish = updated);
       context.showSnack('评论已删除');
     } catch (e) {
-      if (mounted) {
-        context.showSnack('删除评论失败: ${e.toString().replaceAll('Exception: ', '')}');
+      // 登录失效由主页面统一弹窗, 这里不再重复提示
+      if (mounted && !isAuthError(e)) {
+        context.showSnack('删除评论失败: ${errorMessage(e)}');
       }
     }
   }
@@ -297,7 +316,7 @@ class _WishDetailPageState extends State<WishDetailPage> {
               WishVisibilityTag(visibility: _wish.visibility),
               const Spacer(),
               Text(
-                formatWishTime(_wish.createdAt),
+                formatDetailTime(_wish.createdAt),
                 style: const TextStyle(fontSize: 12, color: Colors.grey),
               ),
             ],

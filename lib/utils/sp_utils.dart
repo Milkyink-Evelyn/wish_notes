@@ -4,7 +4,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 enum SPKey {
   token('auth_token'),
   userInfo('user_info'),
-  rememberedUsername('remembered_username');
+  rememberedUsername('remembered_username'),
+  cloudImportMode('cloud_import_mode'),
+  cloudKeepIds('cloud_keep_ids');
 
   final String key;
   const SPKey(this.key);

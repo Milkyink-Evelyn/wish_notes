@@ -1,9 +1,13 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:wish_notes/logic/auth_model.dart';
 import '../repositories/wish_repository.dart';
+import '../utils/auth_events.dart';
+import '../utils/sync_utils.dart';
 import '../utils/toast_utils.dart';
 import '../logic/wish_list_model.dart';
+import 'login_page.dart';
 import 'wish_form_page.dart';
 import 'wishes_page.dart';
 import 'profile_page.dart';
@@ -16,12 +20,15 @@ class MainNavigationPage extends StatefulWidget {
   State<MainNavigationPage> createState() => _MainNavigationPageState();
 }
 
-class _MainNavigationPageState extends State<MainNavigationPage> {
+class _MainNavigationPageState extends State<MainNavigationPage>
+    with WidgetsBindingObserver {
   int _currentIndex = 0;
   late final AuthModel _auth;
   String? _lastUsername;
   bool _checkingOrphan = false;
   bool _orphanPromptDismissed = false;
+  bool _syncing = false;
+  bool _handlingExpired = false;
 
   // 定义两个子页面列表
   final List<Widget> _pages = const [
@@ -35,15 +42,53 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
     _auth = context.read<AuthModel>();
     _lastUsername = _auth.username;
     _auth.addListener(_onAuthChanged);
+    AuthEvents.sessionExpired.addListener(_onSessionExpired);
+    WidgetsBinding.instance.addObserver(this);
 
-    // 启动时检查一次本机遗留的无主心愿
-    WidgetsBinding.instance.addPostFrameCallback((_) => _checkOrphanWishes());
+    // 启动时先同步云端, 再检查一次本机遗留的无主心愿
+    WidgetsBinding.instance.addPostFrameCallback((_) => _startupRefresh());
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _auth.removeListener(_onAuthChanged);
+    AuthEvents.sessionExpired.removeListener(_onSessionExpired);
     super.dispose();
+  }
+
+  /// 从后台切回前台时, 重新读一下本地数据, 避免看到过期内容
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) return;
+    final username = _auth.username;
+    context.read<WishListModel>().loadLocalData(username);
+  }
+
+  /// 启动和登录后都走一遍: 同步云端 -> 检查无主心愿
+  Future<void> _startupRefresh() async {
+    await _syncFromCloud();
+    if (!mounted) return;
+    await _checkOrphanWishes();
+  }
+
+  /// 自动同步云端心愿, 新拉到的按用户设置的默认方式入库
+  Future<void> _syncFromCloud() async {
+    final username = _auth.username;
+    if (username == null || username.isEmpty || _syncing) return;
+
+    _syncing = true;
+    try {
+      await syncWishesAndHandleNew(
+        context,
+        context.read<WishListModel>(),
+        username,
+      );
+    } catch (e) {
+      debugPrint('自动同步云端心愿失败: $e');
+    } finally {
+      _syncing = false;
+    }
   }
 
   void _onAuthChanged() {
@@ -57,8 +102,49 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
     context.read<WishListModel>().loadLocalData(username);
 
     if (username != null && username.isNotEmpty) {
-      _checkOrphanWishes();
+      _startupRefresh();
     }
+  }
+
+  /// 网络层发现 Token 失效, 退出登录并提醒用户重新登录
+  void _onSessionExpired() {
+    if (!_auth.isLoggedIn || _handlingExpired) return;
+    _handlingExpired = true;
+    unawaited(_handleSessionExpired());
+  }
+
+  Future<void> _handleSessionExpired() async {
+    // 先退出登录, 列表会切成游客视角, 不会继续拿失效的 Token 同步
+    await _auth.logout();
+    if (!mounted) return;
+
+    final goLogin = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('登录已失效'),
+        content: const Text('当前登录状态已过期, 已经为你退出登录。\n\n重新登录后可以继续同步云端心愿。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('稍后再说'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('去登录'),
+          ),
+        ],
+      ),
+    );
+
+    if (!mounted) return;
+    if (goLogin == true) {
+      await Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const LoginPage()),
+      );
+    }
+    _handlingExpired = false;
   }
 
   /// 本机可能留下没有归属账号的心愿(含未登录时创建的本地私有心愿)
@@ -191,16 +277,19 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
               bottom: 25,
               child: GestureDetector(
                 onTap: () async {
-                  final result = await Navigator.push(
-                    context, 
+                  final result = await Navigator.push<Object?>(
+                    context,
                     MaterialPageRoute(builder: (_) => const WishFormPage()),
                   );
-                  debugPrint('--- 收到表单结果: $result ---');
-                  if (result == true && context.mounted) {
-                    context.showSnack('心愿已记录~');
-                    final currentUsername = context.read<AuthModel>().username;
-                    context.read<WishListModel>().loadLocalData(currentUsername); 
-                  }
+                  if (result is! WishFormResult || !context.mounted) return;
+
+                  context.showSnack(
+                    result.cloudFailed
+                        ? '心愿已记录, 云端同步失败, 下次同步会自动重试'
+                        : '心愿已记录~',
+                  );
+                  final currentUsername = context.read<AuthModel>().username;
+                  context.read<WishListModel>().loadLocalData(currentUsername);
                 },
                 child: Container(
                   width: 60,

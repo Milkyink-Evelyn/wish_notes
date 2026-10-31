@@ -5,6 +5,13 @@ import '../utils/toast_utils.dart';
 import '../models/wish_model.dart';
 import '../repositories/wish_repository.dart';
 
+/// 新建心愿的返回结果, 列表页按 [cloudFailed] 决定提示文案
+class WishFormResult {
+  final bool cloudFailed;
+
+  const WishFormResult({required this.cloudFailed});
+}
+
 class WishFormPage extends StatefulWidget {
   final WishModel? initialWish; // 传入时为编辑模式
   const WishFormPage({super.key, this.initialWish});
@@ -168,11 +175,15 @@ class _WishFormPageState extends State<WishFormPage> {
         ownerUsername: currentUsername,
       );
 
-      await repo.insertWish(newWish);
+      final localId = await repo.insertWish(newWish);
+      // 新建后立刻尝试上云, 另一台设备刷新才能收到
+      final pushed = await repo.pushNewWish(newWish.copyWith(localId: localId));
 
       if (!mounted) return;
-      debugPrint('--- 准备返回 true ---');
-      Navigator.pop(context, true);
+      Navigator.pop(
+        context,
+        WishFormResult(cloudFailed: !pushed && _selectedMode != StorageMode.local),
+      );
 
     } catch (e) {
       if(!mounted) return;

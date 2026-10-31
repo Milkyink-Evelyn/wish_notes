@@ -2,15 +2,23 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../logic/auth_model.dart';
 import '../logic/wish_list_model.dart';
+import '../models/wish_model.dart';
 import '../repositories/wish_repository.dart';
+import '../utils/cloud_import_pref.dart';
+import '../utils/cloud_keep_ids.dart';
 import '../utils/dialog_utils.dart';
 import '../utils/toast_utils.dart';
 import '../widgets/app_card.dart';
 import 'login_page.dart';
 
-class ProfilePage extends StatelessWidget {
+class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
 
+  @override
+  State<ProfilePage> createState() => _ProfilePageState();
+}
+
+class _ProfilePageState extends State<ProfilePage> {
   static const String _allUsersTag = '__ALL_USERS__';
 
   @override
@@ -24,6 +32,8 @@ class ProfilePage extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
         children: [
           _buildUserCard(context, auth),
+          const SizedBox(height: 16),
+          _buildSyncCard(context),
           const SizedBox(height: 16),
           _buildDataCard(context),
           if (auth.isLoggedIn) ...[
@@ -84,6 +94,110 @@ class ProfilePage extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  /// 云端心愿导入方式的当前值
+  String _importModeLabel() {
+    final mode = CloudImportPref.read();
+    if (mode == StorageMode.cloud) return '自动存为云端';
+    if (mode == StorageMode.smart) return '自动存为智能';
+    return '每次询问';
+  }
+
+  /// 控制从云端新拉下来的心愿怎么存, 避免每次同步都弹窗
+  Widget _buildSyncCard(BuildContext context) {
+    final username = context.read<AuthModel>().username;
+
+    return AppCard(
+      child: Column(
+        children: [
+          ListTile(
+            leading: const Icon(Icons.cloud_sync_outlined, color: Colors.pinkAccent),
+            title: const Text('云端心愿导入方式'),
+            subtitle: Text('数组外的心愿: ${_importModeLabel()}'),
+            trailing: const Icon(Icons.chevron_right, color: Colors.grey),
+            onTap: () => _chooseImportMode(context),
+          ),
+          if (username != null && username.isNotEmpty) ...[
+            const Divider(height: 1, indent: 16, endIndent: 16),
+            // 同步或清理后条数会变, 跟着确认集合的通知刷新
+            ValueListenableBuilder<int>(
+              valueListenable: CloudKeepIds.changes,
+              builder: (context, _, __) {
+                final keptCount = CloudKeepIds.count(username);
+                return ListTile(
+                  leading: const Icon(Icons.cloud_done_outlined, color: Colors.pinkAccent),
+                  title: const Text('已确认保持云端'),
+                  subtitle: Text('本机已记录 $keptCount 条, 同步时不再询问'),
+                  trailing: const Icon(Icons.chevron_right, color: Colors.grey),
+                  onTap: () => _clearKeepIds(context, username),
+                );
+              },
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// 清空后这些心愿下次同步会重新走导入方式或弹窗
+  Future<void> _clearKeepIds(BuildContext context, String username) async {
+    final count = CloudKeepIds.count(username);
+    if (count == 0) {
+      context.showSnack('还没有需要清理的确认记录');
+      return;
+    }
+
+    final confirm = await showConfirmDialog(
+      context,
+      title: '清空确认记录',
+      content: '确定清空 $count 条“保持云端”的确认记录吗？\n\n清空后这些心愿下次同步会重新询问存储方式。',
+      confirmText: '清空',
+    );
+    if (confirm != true || !mounted || !context.mounted) return;
+
+    await CloudKeepIds.clear(username);
+    if (!mounted || !context.mounted) return;
+    setState(() {});
+    context.showSnack('已清空确认记录');
+  }
+
+  Future<void> _chooseImportMode(BuildContext context) async {
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('云端心愿导入方式'),
+        children: [
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(ctx, 'ask'),
+            child: const Text('每次询问'),
+          ),
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(ctx, StorageMode.cloud.value),
+            child: const Text('自动保存为云端'),
+          ),
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(ctx, StorageMode.smart.value),
+            child: const Text('自动保存为智能'),
+          ),
+        ],
+      ),
+    );
+
+    if (choice == null || !mounted) return;
+
+    if (choice == 'ask') {
+      await CloudImportPref.reset();
+    } else {
+      final mode = choice == StorageMode.cloud.value
+          ? StorageMode.cloud
+          : StorageMode.smart;
+      await CloudImportPref.save(mode);
+    }
+
+    if (!mounted || !context.mounted) return;
+    setState(() {});
+    context.showSnack('已设置为${_importModeLabel()}');
   }
 
   /// 本地数据管理入口, 只清本机, 不动云端
@@ -200,6 +314,7 @@ class ProfilePage extends StatelessWidget {
     if (confirm != true || !context.mounted) return;
 
     await WishRepository().clearLocalWishesByUsername(owner);
+    await CloudKeepIds.clear(owner);
     if (!context.mounted) return;
 
     await context.read<WishListModel>().loadLocalData(context.read<AuthModel>().username);
@@ -217,6 +332,7 @@ class ProfilePage extends StatelessWidget {
     if (confirm != true || !context.mounted) return;
 
     await WishRepository().clearAllLocalWishes();
+    await CloudKeepIds.clearAll();
     if (!context.mounted) return;
 
     await context.read<WishListModel>().loadLocalData(context.read<AuthModel>().username);

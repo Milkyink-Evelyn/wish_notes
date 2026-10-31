@@ -5,8 +5,13 @@ import '../models/wish_model.dart';
 class CloudWishSelection {
   final List<int> localIds;
   final StorageMode mode;
+  final bool remember; // 是否记住这次选择, 以后不再询问
 
-  const CloudWishSelection({required this.localIds, required this.mode});
+  const CloudWishSelection({
+    required this.localIds,
+    required this.mode,
+    this.remember = false,
+  });
 }
 
 /// 选择这次从云端新拉到本地的心愿要以什么方式保存
@@ -39,6 +44,7 @@ class _CloudWishPicker extends StatefulWidget {
 class _CloudWishPickerState extends State<_CloudWishPicker> {
   late final Set<int> _selected;
   StorageMode _mode = StorageMode.cloud;
+  bool _remember = false;
 
   @override
   void initState() {
@@ -74,6 +80,7 @@ class _CloudWishPickerState extends State<_CloudWishPicker> {
     Navigator.pop(context, CloudWishSelection(
       localIds: _selected.toList(),
       mode: _mode,
+      remember: _remember,
     ));
   }
 
@@ -155,6 +162,22 @@ class _CloudWishPickerState extends State<_CloudWishPicker> {
                   ? '云端：以服务器为准, 退出登录会清掉本地副本'
                   : '智能：本地和云端各存一份, 退出登录保留本地',
               style: const TextStyle(fontSize: 12, color: Colors.black54),
+            ),
+            Row(
+              children: [
+                Checkbox(
+                  value: _remember,
+                  onChanged: (value) {
+                    setState(() => _remember = value ?? false);
+                  },
+                ),
+                const Expanded(
+                  child: Text(
+                    '以后自动按这个方式处理, 不再询问',
+                    style: TextStyle(fontSize: 12, color: Colors.black54),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 12),
             SizedBox(

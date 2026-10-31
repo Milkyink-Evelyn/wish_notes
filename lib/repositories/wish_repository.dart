@@ -1,8 +1,17 @@
 import 'dart:convert';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart' show debugPrint;
 import 'package:wish_notes/utils/wish_api.dart';
+import '../utils/cloud_keep_ids.dart';
 import '../utils/db_utils.dart';
 import '../models/wish_model.dart';
+
+/// 单条心愿推送到云端的结果
+enum CloudPushResult {
+  success,      // 推上去了, 或者本来就不需要推
+  failed,       // 网络/服务端失败, 保留脏标记等下次同步
+  unauthorized, // 登录失效, 交给全局弹窗提醒
+}
 
 class WishRepository {
   final WishApi _api;
@@ -269,29 +278,69 @@ class WishRepository {
   }
 
   /// 处理墓碑软删除
+  /// 广场缓存不属于自己, 不能拿去删云端
   Future<void> syncDeletedWishes(String currentUsername) async {
-    final db = DBUtils.db;
-    final deletedMaps = await db.query(
+    final deletedMaps = await DBUtils.db.query(
       WishTable.name,
-      where: '${WishTable.colIsDeleted} = ? AND ${WishTable.colServerId} IS NOT NULL AND ${WishTable.colOwnerUsername} = ?',
+      where: '''
+        ${WishTable.colIsDeleted} = ?
+        AND ${WishTable.colServerId} IS NOT NULL
+        AND ${WishTable.colIsPublicCache} = 0
+        AND ${WishTable.colOwnerUsername} = ?
+      ''',
       whereArgs: [1, currentUsername],
     );
 
     for (var map in deletedMaps) {
       final serverId = map[WishTable.colServerId] as int;
       final localId = map[WishTable.colLocalId] as int;
-
-      try {
-        await _api.deleteWish(serverId);
-        await db.delete(
-          WishTable.name,
-          where: '${WishTable.colLocalId} = ?',
-          whereArgs: [localId],
-        );
-      } catch (e) {
-        debugPrint('云端删除失败 serverId=$serverId: $e');
-      }
+      await _deleteCloudRow(serverId, localId);
     }
+  }
+
+  /// 删除云端记录, 成功后把本地墓碑一起清掉
+  /// 404 说明云端本来就没有了, 同样按成功处理
+  Future<CloudPushResult> _deleteCloudRow(int serverId, int localId) async {
+    try {
+      await _api.deleteWish(serverId);
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 401) return CloudPushResult.unauthorized;
+      if (e.response?.statusCode != 404) {
+        debugPrint('云端删除失败 serverId=$serverId: $e');
+        return CloudPushResult.failed;
+      }
+    } catch (e) {
+      debugPrint('云端删除失败 serverId=$serverId: $e');
+      return CloudPushResult.failed;
+    }
+
+    await DBUtils.db.delete(
+      WishTable.name,
+      where: '${WishTable.colLocalId} = ?',
+      whereArgs: [localId],
+    );
+    return CloudPushResult.success;
+  }
+
+  /// 本地删除后立刻试删云端, 失败保留墓碑等下次同步
+  /// 网络抖一下就失败的话另一台设备会一直看到这条心愿, 这里多试一次
+  Future<CloudPushResult> tryPushDeleted(int localId) async {
+    final maps = await DBUtils.db.query(
+      WishTable.name,
+      columns: [WishTable.colServerId],
+      where: '${WishTable.colLocalId} = ?',
+      whereArgs: [localId],
+      limit: 1,
+    );
+    // 没上过云的已经直接物理删掉了, 没有云端要处理
+    if (maps.isEmpty) return CloudPushResult.success;
+
+    final serverId = maps.first[WishTable.colServerId] as int?;
+    if (serverId == null) return CloudPushResult.success;
+
+    final first = await _deleteCloudRow(serverId, localId);
+    if (first == CloudPushResult.success) return first;
+    return _deleteCloudRow(serverId, localId);
   }
 
   /// 将本地新建的智能/云端心愿推送到服务器
@@ -311,35 +360,54 @@ class WishRepository {
 
     for (var map in unsyncedMaps) {
       final localWish = WishModel.fromMap(map);
+      await pushNewWish(localWish);
+    }
+  }
 
-      try {
-        final cloudData = await _api.createWish(
-          localWish.content,
-          localWish.visibility.value,
-        );
+  /// 把一条还没上云的心愿推上去, 成功后回填 serverId
+  /// 失败就留在本地, 等下次同步再试
+  Future<bool> pushNewWish(WishModel localWish) async {
+    if (localWish.localId == null || localWish.serverId != null) return false;
+    if (localWish.storageMode == StorageMode.local) return false;
+    if (localWish.ownerUsername == null || localWish.ownerUsername!.isEmpty) {
+      return false;
+    }
 
-        final serverId = cloudData['id'] as int;
-        await db.update(
-          WishTable.name,
-          {WishTable.colServerId: serverId},
-          where: '${WishTable.colLocalId} = ?',
-          whereArgs: [localWish.localId],
-        );
+    final db = DBUtils.db;
+    try {
+      final cloudData = await _api.createWish(
+        localWish.content,
+        localWish.visibility.value,
+      );
 
-        // 创建时已经把当前内容传上去了, 内容和可见性没再变的话可以顺便清脏
-        await db.update(
-          WishTable.name,
-          {WishTable.colContentDirty: 0},
-          where: '''
-            ${WishTable.colLocalId} = ?
-            AND ${WishTable.colContent} = ?
-            AND ${WishTable.colVisibility} = ?
-          ''',
-          whereArgs: [localWish.localId, localWish.content, localWish.visibility.value],
-        );
-      } catch (e) {
-        debugPrint('推送新建心愿失败 localId=${localWish.localId}: $e');
+      final serverId = cloudData['id'] as int;
+      await db.update(
+        WishTable.name,
+        {WishTable.colServerId: serverId},
+        where: '${WishTable.colLocalId} = ?',
+        whereArgs: [localWish.localId],
+      );
+
+      // 创建时已经把当前内容传上去了, 内容和可见性没再变的话可以顺便清脏
+      await db.update(
+        WishTable.name,
+        {WishTable.colContentDirty: 0},
+        where: '''
+          ${WishTable.colLocalId} = ?
+          AND ${WishTable.colContent} = ?
+          AND ${WishTable.colVisibility} = ?
+        ''',
+        whereArgs: [localWish.localId, localWish.content, localWish.visibility.value],
+      );
+      // 自己选的云端存储也算确认过, 退出登录再拉回来时不再询问
+      if (localWish.storageMode == StorageMode.cloud) {
+        await CloudKeepIds.add(localWish.ownerUsername, [serverId]);
       }
+      debugPrint('新建心愿已上云 localId=${localWish.localId} serverId=$serverId');
+      return true;
+    } catch (e) {
+      debugPrint('推送新建心愿失败 localId=${localWish.localId}: $e');
+      return false;
     }
   }
 
@@ -384,6 +452,26 @@ class WishRepository {
       where: '${WishTable.colLocalId} = ? AND ${WishTable.colStatus} = ?',
       whereArgs: [localId, wish.status],
     );
+  }
+
+  /// 本地改完状态立刻试推一次, 失败保留脏标记
+  /// 界面根据返回值提示用户, 登录失效单独走全局弹窗
+  Future<CloudPushResult> tryPushStatus(WishModel wish) async {
+    if (wish.serverId == null || wish.storageMode == StorageMode.local) {
+      return CloudPushResult.success;
+    }
+    try {
+      await pushWishStatus(wish);
+      return CloudPushResult.success;
+    } on DioException catch (e) {
+      debugPrint('立即推送状态失败 serverId=${wish.serverId}: $e');
+      return e.response?.statusCode == 401
+          ? CloudPushResult.unauthorized
+          : CloudPushResult.failed;
+    } catch (e) {
+      debugPrint('立即推送状态失败 serverId=${wish.serverId}: $e');
+      return CloudPushResult.failed;
+    }
   }
 
   /// 只推送本地改过的内容/可见性
@@ -537,6 +625,27 @@ class WishRepository {
       where: '${WishTable.colLocalId} = ?',
       whereArgs: [wish.localId],
     );
+  }
+
+  /// 当前账号在本地还存在的云端心愿 serverId
+  /// 用来清理"已确认保持云端"里已经失效的记录
+  Future<Set<int>> getLocalServerIds(String username) async {
+    final db = DBUtils.db;
+    final maps = await db.query(
+      WishTable.name,
+      columns: [WishTable.colServerId],
+      where: '''
+        ${WishTable.colServerId} IS NOT NULL
+        AND ${WishTable.colIsDeleted} = 0
+        AND ${WishTable.colIsPublicCache} = 0
+        AND ${WishTable.colOwnerUsername} = ?
+      ''',
+      whereArgs: [username],
+    );
+
+    return maps
+        .map((e) => e[WishTable.colServerId] as int)
+        .toSet();
   }
 
   /// 获取本地真实数据里出现过的归属者(不含广场缓存), 游客用空字符串表示

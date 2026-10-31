@@ -1,7 +1,26 @@
 import 'package:flutter/foundation.dart';
 import '../models/wish_model.dart';
 import '../repositories/wish_repository.dart';
+import '../utils/error_utils.dart';
 import '../utils/sp_utils.dart';
+
+/// 一次云端同步的结果
+class SyncRefreshResult {
+  final List<WishModel> newWishes;
+  // 请求失败时不能拿本地现状去清理确认记录, 否则会误删
+  final bool success;
+  // 失败原因, 界面拿去提示用户
+  final String? error;
+  // 登录失效会走全局弹窗, 界面上就不再叠加别的提示
+  final bool unauthorized;
+
+  const SyncRefreshResult({
+    required this.newWishes,
+    required this.success,
+    this.error,
+    this.unauthorized = false,
+  });
+}
 
 class WishListModel extends ChangeNotifier {
   final WishRepository _repo = WishRepository();
@@ -84,9 +103,12 @@ class WishListModel extends ChangeNotifier {
 
   /// 下拉刷新: 触发云端同步,然后再加载本地数据
   /// 返回这次从云端新拉到本地的心愿, 页面用它询问存储方式
-  Future<List<WishModel>> syncAndRefresh(String? username) async {
+  Future<SyncRefreshResult> syncAndRefresh(String? username) async {
     final token = SPUtils.getString(SPKey.token);
     var newWishes = <WishModel>[];
+    var success = true;
+    String? error;
+    var unauthorized = false;
     try {
       if (token != null && token.isNotEmpty) {
         // 已登录：执行完整的云端同步流程
@@ -97,10 +119,18 @@ class WishListModel extends ChangeNotifier {
       }
     } catch (e) {
       debugPrint('同步刷新失败: $e');
+      success = false;
+      unauthorized = isAuthError(e);
+      error = errorMessage(e, fallback: '同步失败, 请稍后重试');
     } finally {
       _wishes = await _repo.getMyWishes(ownerUsername: username);
       notifyListeners();
     }
-    return newWishes;
+    return SyncRefreshResult(
+      newWishes: newWishes,
+      success: success,
+      error: error,
+      unauthorized: unauthorized,
+    );
   }
 }

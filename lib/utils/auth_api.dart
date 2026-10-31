@@ -10,10 +10,11 @@ class AuthApi {
   /// 返回: Map{ [token] 令牌, [type] Token类型(固定为"Bearer"), [id] 用户ID, [username] 用户名, [nickname] 昵称 }
   Future<Map<String, dynamic>> login(String username, String password) async {
     try {
+      // 登录不带本地残留的 Token, 免得旧 Token 失效干扰登录
       final response = await Http().post('/auth/login', data: {
         'username': username,
         'password': password,
-      });
+      }, skipAuth: true);
 
       return unwrapMap(response, fallbackMessage: '未知错误', prefix: '登录失败: ');
     } catch (e) {
@@ -31,7 +32,7 @@ class AuthApi {
         'username': username,
         'password': password,
         if (nickname.isNotEmpty) 'nickname': nickname,
-      });
+      }, skipAuth: true);
 
       return unwrapMap(response, fallbackMessage: '未知错误', prefix: '注册失败: ');
     } catch (e) {

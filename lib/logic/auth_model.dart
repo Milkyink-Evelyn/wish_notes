@@ -1,8 +1,9 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import '../repositories/wish_repository.dart';
-import '../utils/sp_utils.dart';
 import '../utils/auth_api.dart';
+import '../utils/auth_events.dart';
+import '../utils/sp_utils.dart';
 
 class AuthModel extends ChangeNotifier {
   // 实例化 API 请求类
@@ -74,6 +75,9 @@ class AuthModel extends ChangeNotifier {
         await _saveUserInfo();
       }
 
+      // 换了个新身份, 下次登录失效要重新提醒
+      AuthEvents.reset();
+
       _isLoading = false;
       notifyListeners(); //登陆成功
       return true;
@@ -102,6 +106,8 @@ class AuthModel extends ChangeNotifier {
         await SPUtils.setString(SPKey.token, _token!);
         await _saveUserInfo();
       }
+
+      AuthEvents.reset();
 
       _isLoading = false;
       notifyListeners(); //注册成功

@@ -1,3 +1,6 @@
+/// 补两位, 统一时间格式
+String _two(int value) => value.toString().padLeft(2, '0');
+
 /// 把心愿创建时间格式化成列表里显示的短文本
 /// 今天的显示"今天 HH:mm", 其他日期显示"yyyy-MM-dd"
 String formatWishTime(int timestamp) {
@@ -7,6 +10,12 @@ String formatWishTime(int timestamp) {
     return '今天 ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
   }
   return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+}
+
+/// 详情页用的详细时间, 精确到分
+String formatDetailTime(int timestamp) {
+  final dt = DateTime.fromMillisecondsSinceEpoch(timestamp);
+  return '${dt.year}-${_two(dt.month)}-${_two(dt.day)} ${_two(dt.hour)}:${_two(dt.minute)}';
 }
 
 /// 评论时间是接口返回的字符串, 可能是时间戳, 也可能是 ISO 时间
@@ -19,10 +28,6 @@ String formatCommentTime(String raw) {
 
   if (dt == null) return raw;
 
-  final local = dt.toLocal();
-  final now = DateTime.now();
-  if (local.year == now.year && local.month == now.month && local.day == now.day) {
-    return '今天 ${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
-  }
-  return '${local.year}-${local.month.toString().padLeft(2, '0')}-${local.day.toString().padLeft(2, '0')}';
+  // 评论时间也是详情页, 统一显示到分
+  return formatDetailTime(dt.toLocal().millisecondsSinceEpoch);
 }

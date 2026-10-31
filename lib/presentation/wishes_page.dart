@@ -6,8 +6,8 @@ import '../logic/wish_list_model.dart';
 import '../models/wish_model.dart';
 import '../repositories/wish_repository.dart';
 import '../utils/dialog_utils.dart';
+import '../utils/sync_utils.dart';
 import '../utils/toast_utils.dart';
-import '../widgets/cloud_wish_picker.dart';
 import '../widgets/custom_popup_menu.dart';
 import '../widgets/status_filter.dart';
 import '../widgets/wish_card.dart';
@@ -24,35 +24,64 @@ enum _PublicSortType {
   const _PublicSortType(this.label);
 }
 
-class WishesPage extends StatelessWidget {
+class WishesPage extends StatefulWidget {
   const WishesPage({super.key});
 
   @override
+  State<WishesPage> createState() => _WishesPageState();
+}
+
+class _WishesPageState extends State<WishesPage> with SingleTickerProviderStateMixin {
+  late final TabController _tabController;
+  final GlobalKey<_PublicWishesViewState> _publicWishesKey =
+      GlobalKey<_PublicWishesViewState>();
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+    _tabController.addListener(_onTabChanged);
+  }
+
+  /// 切到心愿广场时顺手刷新一次, 刚发布或修改的心愿能及时出现
+  void _onTabChanged() {
+    if (_tabController.indexIsChanging) return;
+    if (_tabController.index == 1) {
+      _publicWishesKey.currentState?.refreshFromCloud();
+    }
+  }
+
+  @override
+  void dispose() {
+    _tabController.removeListener(_onTabChanged);
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    // 使用 Provider 将数据逻辑注入,并在创建时立刻读取本地数据
-    return DefaultTabController(
-      length: 2,
-      child: Scaffold(
-        backgroundColor: Colors.transparent,
-        appBar: AppBar(
-          title: const Text(
-            '心愿便签',
-            style: TextStyle(fontWeight: FontWeight.bold),
-          ),
-          bottom: const TabBar(
-            unselectedLabelColor: Colors.grey,
-            tabs: [
-              Text('我的心愿'),
-              Text('心愿广场'),
-            ],
-          ),
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      appBar: AppBar(
+        title: const Text(
+          '心愿便签',
+          style: TextStyle(fontWeight: FontWeight.bold),
         ),
-        body: const TabBarView(
-          children: [
-            _MyWishesView(),
-            _PublicWishesView(),
+        bottom: TabBar(
+          controller: _tabController,
+          unselectedLabelColor: Colors.grey,
+          tabs: const [
+            Text('我的心愿'),
+            Text('心愿广场'),
           ],
         ),
+      ),
+      body: TabBarView(
+        controller: _tabController,
+        children: [
+          const _MyWishesView(),
+          _PublicWishesView(key: _publicWishesKey),
+        ],
       ),
     );
   }
@@ -204,25 +233,17 @@ class _MyWishesViewState extends State<_MyWishesView> {
     );
   }
 
-  // 下拉同步, 新拉下来的云端心愿交给用户选存储方式
+  // 下拉同步, 新拉下来的云端心愿交给统一的导入逻辑处理
   Future<void> _syncAndPickStorage(
     BuildContext context,
     WishListModel model,
     String? currentUsername,
-  ) async {
-    final newWishes = await model.syncAndRefresh(currentUsername);
-    if (!context.mounted || newWishes.isEmpty) return;
-
-    final selection = await showCloudWishPicker(context, newWishes);
-    if (selection == null || !context.mounted) return;
-
-    await WishRepository().updateWishStorageMode(selection.localIds, selection.mode);
-    if (!context.mounted) return;
-
-    await model.loadLocalData(currentUsername);
-    if (!context.mounted) return;
-    context.showSnack(
-      selection.mode == StorageMode.cloud ? '已保存为云端存储' : '已保存为智能存储',
+  ) {
+    return syncWishesAndHandleNew(
+      context,
+      model,
+      currentUsername,
+      showResult: true,
     );
   }
 
@@ -321,6 +342,14 @@ class _MyWishesViewState extends State<_MyWishesView> {
           context.showSnack(WishStatus.isRealized(nextStatus) ? '心愿实现啦~' : '已标记为未实现');
           model.loadLocalData(currentUsername);
         }
+        // 顺手推一次, 另一台设备刷新才能看到状态变化
+        // 未登录时没有云端可推, 不用提示失败
+        final pushed = currentUsername == null
+            ? CloudPushResult.success
+            : await repo.tryPushStatus(updated);
+        if (pushed == CloudPushResult.failed && context.mounted) {
+          context.showSnack('云端同步失败, 下次同步会自动重试');
+        }
       },
       // 删除前先确认, 没上过云的直接删掉
       onDelete: () async {
@@ -333,10 +362,21 @@ class _MyWishesViewState extends State<_MyWishesView> {
 
         if (confirm == true) {
           final repo = WishRepository();
-          await repo.deleteWish(wish.localId!);
+          final localId = wish.localId!;
+          await repo.deleteWish(localId);
           if (context.mounted) {
             context.showSnack('心愿已删除');
             model.loadLocalData(currentUsername);
+          }
+          // 等云端删完, 失败保留墓碑, 下次同步重试
+          final pushed = await repo
+              .tryPushDeleted(localId)
+              .timeout(
+                const Duration(seconds: 6),
+                onTimeout: () => CloudPushResult.failed,
+              );
+          if (pushed == CloudPushResult.failed && context.mounted) {
+            context.showSnack('云端删除失败, 下次同步会自动重试');
           }
         }
       },
@@ -415,7 +455,7 @@ class _MyWishesViewState extends State<_MyWishesView> {
 }
 
 class _PublicWishesView extends StatefulWidget {
-  const _PublicWishesView();
+  const _PublicWishesView({super.key});
 
   @override
   State<_PublicWishesView> createState() => _PublicWishesViewState();
@@ -426,6 +466,7 @@ class _PublicWishesViewState extends State<_PublicWishesView> {
 
   List<WishModel> _wishes = [];
   bool _isLoading = true;
+  bool _isRefreshing = false;
   bool _hasError = false;
   String? _selectedStatus;
   _PublicSortType _sortType = _PublicSortType.time;
@@ -459,8 +500,13 @@ class _PublicWishesViewState extends State<_PublicWishesView> {
     }
   }
 
+  /// 切到广场时静默刷新一次
+  Future<void> refreshFromCloud() => _refresh(showError: false);
+
   /// 下拉刷新: 拉云端公开心愿, 覆盖本地缓存
   Future<void> _refresh({bool showError = true}) async {
+    if (_isRefreshing) return;
+    _isRefreshing = true;
     try {
       await _repo.refreshPublicWishes(context.read<AuthModel>().username);
       if (mounted) setState(() => _hasError = false);
@@ -470,6 +516,7 @@ class _PublicWishesViewState extends State<_PublicWishesView> {
       if (mounted && showError) context.showSnack('广场刷新失败,先看看本地缓存吧~');
     } finally {
       await _loadLocal();
+      _isRefreshing = false;
     }
   }
 

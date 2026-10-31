@@ -15,7 +15,8 @@ class WishApi {
   /// 获取广场的公开心愿(云端, 游客也能访问)
   Future<List<Map<String, dynamic>>> fetchPublicWishes() async {
     try {
-      final response = await Http().get('/wishes', skipAuth: true);
+      // 广场列表数据量大, 调试时不打印这份请求和响应
+      final response = await Http().get('/wishes', skipAuth: true, skipLog: true);
       return unwrapList(response, fallbackMessage: '获取公开心愿失败');
     } catch (e) {
       rethrow; // 把错误抛给 Repository 处理
