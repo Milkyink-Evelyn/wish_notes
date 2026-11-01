@@ -320,6 +320,7 @@ class _WishDetailPageState extends State<WishDetailPage> {
                     _buildEmptyComments()
                   else
                     ..._wish.comments.map((comment) => _buildCommentTile(comment, auth)),
+                  if (_wish.comments.isNotEmpty) _buildCommentFooter(),
                 ],
               ),
             ),
@@ -428,6 +429,27 @@ class _WishDetailPageState extends State<WishDetailPage> {
       child: const Text(
         '还没有评论, 来抢个沙发吧~',
         style: TextStyle(color: Colors.grey),
+      ),
+    );
+  }
+
+  /// 评论到底提示, 和列表页保持同一个样式
+  Widget _buildCommentFooter() {
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(width: 40, height: 1, color: Colors.grey.shade300),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 12),
+            child: Text(
+              '--- 已经到底啦 ---',
+              style: TextStyle(color: Colors.grey, fontSize: 12),
+            ),
+          ),
+          Container(width: 40, height: 1, color: Colors.grey.shade300),
+        ],
       ),
     );
   }
