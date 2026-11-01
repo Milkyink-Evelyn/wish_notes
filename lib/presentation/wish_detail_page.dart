@@ -50,9 +50,15 @@ class _WishDetailPageState extends State<WishDetailPage> {
   }
 
   /// 静默拉一次云端详情, 顺便刷新评论
-  Future<void> _refreshDetail() async {
+  /// [showResult] 用于评论区下拉刷新, 用户主动拉的时候给个结果提示
+  Future<void> _refreshDetail({bool showResult = false}) async {
     final serverId = _wish.serverId;
-    if (serverId == null) return;
+    if (serverId == null) {
+      if (showResult && mounted) {
+        context.showSnack('本地心愿没有云端数据可刷新');
+      }
+      return;
+    }
 
     try {
       // 游客看公开详情不需要 Token, 避免旧 Token 失效时连详情都打不开
@@ -79,8 +85,13 @@ class _WishDetailPageState extends State<WishDetailPage> {
       }
       if (!mounted) return;
       setState(() => _wish = updated);
+      if (showResult) context.showSnack('已刷新');
     } catch (e) {
       debugPrint('拉取心愿详情失败: $e');
+      // 登录失效由主页面统一弹窗, 这里只提示普通的刷新失败
+      if (showResult && mounted && !isAuthError(e)) {
+        context.showSnack('刷新失败: ${errorMessage(e)}');
+      }
     }
   }
 
@@ -293,19 +304,24 @@ class _WishDetailPageState extends State<WishDetailPage> {
       body: Column(
         children: [
           Expanded(
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
-              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-              children: [
-                _buildWishCard(isOwner, isRealized),
-                const SizedBox(height: 20),
-                _buildCommentHeader(),
-                const SizedBox(height: 10),
-                if (_wish.comments.isEmpty)
-                  _buildEmptyComments()
-                else
-                  ..._wish.comments.map((comment) => _buildCommentTile(comment, auth)),
-              ],
+            // 评论区下拉刷新, 内容不满一屏也能拉
+            child: RefreshIndicator(
+              onRefresh: () => _refreshDetail(showResult: true),
+              child: ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
+                keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                children: [
+                  _buildWishCard(isOwner, isRealized),
+                  const SizedBox(height: 20),
+                  _buildCommentHeader(),
+                  const SizedBox(height: 10),
+                  if (_wish.comments.isEmpty)
+                    _buildEmptyComments()
+                  else
+                    ..._wish.comments.map((comment) => _buildCommentTile(comment, auth)),
+                ],
+              ),
             ),
           ),
           _buildCommentInput(auth),

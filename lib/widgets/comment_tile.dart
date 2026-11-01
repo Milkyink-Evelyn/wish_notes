@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../app_theme.dart';
 import '../models/wish_model.dart';
 import '../utils/time_utils.dart';
+import '../utils/toast_utils.dart';
 
 /// 单条评论气泡
 /// 自己的评论偏粉, 作者的评论偏蓝, 其他人用默认卡片色
@@ -80,7 +82,12 @@ class CommentTile extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 5),
-                _buildContent(),
+                // 长按复制整条评论
+                GestureDetector(
+                  onLongPress: () => _copyContent(context),
+                  behavior: HitTestBehavior.opaque,
+                  child: _buildContent(),
+                ),
                 const SizedBox(height: 6),
                 Row(
                   children: [
@@ -144,6 +151,13 @@ class CommentTile extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  /// 长按直接复制评论内容, 复制完轻提示一下
+  Future<void> _copyContent(BuildContext context) async {
+    await Clipboard.setData(ClipboardData(text: comment.content));
+    if (!context.mounted) return;
+    context.showSnack('评论内容已复制');
   }
 
   /// 识别 "回复 @xxx :" 前缀, 用蓝色标出来
