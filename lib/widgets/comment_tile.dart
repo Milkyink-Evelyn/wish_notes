@@ -11,6 +11,8 @@ class CommentTile extends StatelessWidget {
   final bool isAuthor;
   final VoidCallback onReply;
   final VoidCallback onDelete;
+  // 删除请求进行中, 用转圈代替图标, 顺便挡住重复点击
+  final bool deleting;
 
   const CommentTile({
     super.key,
@@ -19,6 +21,7 @@ class CommentTile extends StatelessWidget {
     required this.isAuthor,
     required this.onReply,
     required this.onDelete,
+    this.deleting = false,
   });
 
   @override
@@ -105,10 +108,19 @@ class CommentTile extends StatelessWidget {
           // 只有自己的评论才有删除按钮
           if (isMine)
             GestureDetector(
-              onTap: onDelete,
-              child: const Padding(
-                padding: EdgeInsets.only(left: 8, top: 2),
-                child: Icon(Icons.close, size: 16, color: Colors.grey),
+              onTap: deleting ? null : onDelete,
+              child: Padding(
+                padding: const EdgeInsets.only(left: 8, top: 2),
+                child: deleting
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.grey,
+                        ),
+                      )
+                    : const Icon(Icons.close, size: 16, color: Colors.grey),
               ),
             ),
         ],

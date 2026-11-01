@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../logic/auth_model.dart';
+import '../logic/wish_list_model.dart';
 import '../models/wish_model.dart';
 import '../repositories/wish_repository.dart';
 import '../utils/dialog_utils.dart';
@@ -31,6 +32,8 @@ class _WishDetailPageState extends State<WishDetailPage> {
 
   late WishModel _wish;
   bool _isSending = false;
+  // 正在删除的评论 id, 为空表示没有删除请求在跑
+  int? _deletingCommentId;
 
   @override
   void initState() {
@@ -226,6 +229,9 @@ class _WishDetailPageState extends State<WishDetailPage> {
 
   /// 删除成功后同步移除本地缓存里的这条评论
   Future<void> _deleteComment(CommentModel comment) async {
+    // 有请求没跑完就不让再点, 免得重复调删除接口
+    if (_deletingCommentId != null) return;
+
     final confirm = await showConfirmDialog(
       context,
       title: '删除评论',
@@ -238,6 +244,8 @@ class _WishDetailPageState extends State<WishDetailPage> {
     final serverId = _wish.serverId;
     if (serverId == null) return;
 
+    setState(() => _deletingCommentId = comment.id);
+
     try {
       await _api.deleteComment(serverId, comment.id);
       final updated = _wish.copyWith(
@@ -247,12 +255,16 @@ class _WishDetailPageState extends State<WishDetailPage> {
 
       if (!mounted) return;
       setState(() => _wish = updated);
+      // 心愿列表里的评论数也跟着刷新
+      context.read<WishListModel>().loadLocalData(context.read<AuthModel>().username);
       context.showSnack('评论已删除');
     } catch (e) {
       // 登录失效由主页面统一弹窗, 这里不再重复提示
       if (mounted && !isAuthError(e)) {
         context.showSnack('删除评论失败: ${errorMessage(e)}');
       }
+    } finally {
+      if (mounted) setState(() => _deletingCommentId = null);
     }
   }
 
@@ -415,6 +427,7 @@ class _WishDetailPageState extends State<WishDetailPage> {
       comment: comment,
       isMine: isMine,
       isAuthor: isAuthor,
+      deleting: _deletingCommentId == comment.id,
       onReply: () => _startReply(comment),
       onDelete: () => _deleteComment(comment),
     );
