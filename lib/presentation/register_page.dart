@@ -21,6 +21,9 @@ class _RegisterPageState extends State<RegisterPage> {
   final _usernameReg = RegExp(r'^[a-zA-Z0-9_]{3,50}$');
   final _passwordReg = RegExp(r'^\S{6,20}$');
 
+  // 密码默认隐藏, 点小眼睛切换明文
+  bool _obscurePassword = true;
+
   @override
   void dispose() {
     _userController.dispose();
@@ -97,11 +100,22 @@ class _RegisterPageState extends State<RegisterPage> {
         // 密码至少 6 位
         TextFormField(
           controller: _passController,
-          obscureText: true,
+          obscureText: _obscurePassword,
           autovalidateMode: AutovalidateMode.onUserInteraction,
-          decoration: const InputDecoration(
+          decoration: InputDecoration(
             labelText: '密码 (6-20位, 不含空格)',
-            border: OutlineInputBorder(),
+            border: const OutlineInputBorder(),
+            suffixIcon: IconButton(
+              onPressed: () {
+                setState(() => _obscurePassword = !_obscurePassword);
+              },
+              icon: Icon(
+                _obscurePassword
+                    ? Icons.visibility_off_outlined
+                    : Icons.visibility_outlined,
+              ),
+              tooltip: _obscurePassword ? '显示密码' : '隐藏密码',
+            ),
           ),
           validator: (v) {
             if (!_passwordReg.hasMatch(v ?? '')) {

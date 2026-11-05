@@ -19,6 +19,8 @@ class _LoginPageState extends State<LoginPage> {
   final _passController = TextEditingController();
 
   bool _rememberAccount = true;
+  // 密码默认隐藏, 点小眼睛切换明文
+  bool _obscurePassword = true;
 
   @override
   void initState() {
@@ -103,10 +105,21 @@ class _LoginPageState extends State<LoginPage> {
 
         TextFormField(
           controller: _passController,
-          obscureText: true,
-          decoration: const InputDecoration(
+          obscureText: _obscurePassword,
+          decoration: InputDecoration(
             labelText: '密码',
-            border: OutlineInputBorder(),
+            border: const OutlineInputBorder(),
+            suffixIcon: IconButton(
+              onPressed: () {
+                setState(() => _obscurePassword = !_obscurePassword);
+              },
+              icon: Icon(
+                _obscurePassword
+                    ? Icons.visibility_off_outlined
+                    : Icons.visibility_outlined,
+              ),
+              tooltip: _obscurePassword ? '显示密码' : '隐藏密码',
+            ),
           ),
           validator: (v) => (v == null || v.length < 6) ? '密码至少 6 位' : null,
         ),
