@@ -6,6 +6,7 @@ import '../logic/wish_list_model.dart';
 import '../models/wish_model.dart';
 import '../repositories/wish_repository.dart';
 import '../utils/dialog_utils.dart';
+import '../utils/error_utils.dart';
 import '../utils/sync_utils.dart';
 import '../utils/toast_utils.dart';
 import '../widgets/custom_popup_menu.dart';
@@ -482,7 +483,7 @@ class _PublicWishesViewState extends State<_PublicWishesView> {
   Future<void> _firstLoad() async {
     await _loadLocal();
     if (!mounted) return;
-    await _refresh(showError: false);
+    await _refresh(showResult: false);
   }
 
   /// 先读本地缓存, 让广场有内容可看
@@ -501,19 +502,23 @@ class _PublicWishesViewState extends State<_PublicWishesView> {
   }
 
   /// 切到广场时静默刷新一次
-  Future<void> refreshFromCloud() => _refresh(showError: false);
+  Future<void> refreshFromCloud() => _refresh(showResult: false);
 
   /// 下拉刷新: 拉云端公开心愿, 覆盖本地缓存
-  Future<void> _refresh({bool showError = true}) async {
+  Future<void> _refresh({bool showResult = true}) async {
     if (_isRefreshing) return;
     _isRefreshing = true;
     try {
       await _repo.refreshPublicWishes(context.read<AuthModel>().username);
       if (mounted) setState(() => _hasError = false);
+      if (mounted && showResult) context.showSnack('已刷新广场心愿');
     } catch (e) {
       debugPrint('刷新广场失败: $e');
       if (mounted) setState(() => _hasError = true);
-      if (mounted && showError) context.showSnack('广场刷新失败,先看看本地缓存吧~');
+      // 登录失效由主页面统一弹窗, 这里不重复提示
+      if (mounted && showResult && !isAuthError(e)) {
+        context.showSnack('广场刷新失败: ${errorMessage(e)}');
+      }
     } finally {
       await _loadLocal();
       _isRefreshing = false;

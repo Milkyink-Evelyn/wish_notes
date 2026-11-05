@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../repositories/wish_repository.dart';
 import '../utils/auth_api.dart';
 import '../utils/auth_events.dart';
+import '../utils/error_utils.dart';
 import '../utils/sp_utils.dart';
 
 class AuthModel extends ChangeNotifier {
@@ -83,7 +84,7 @@ class AuthModel extends ChangeNotifier {
       return true;
     } catch (e) {
       _isLoading = false;
-      _errorMsg = e.toString().replaceAll('Exception: ', '');
+      _errorMsg = authErrorMessage(e, isLogin: true);
       notifyListeners(); //登录失败 
       return false;
     }
@@ -114,7 +115,7 @@ class AuthModel extends ChangeNotifier {
       return true;
     } catch (e) {
       _isLoading = false;
-      _errorMsg = e.toString().replaceAll('Exception: ', '');
+      _errorMsg = authErrorMessage(e, isLogin: false);
       notifyListeners(); //注册失败 
       return false;
     }
